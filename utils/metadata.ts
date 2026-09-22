@@ -7,6 +7,7 @@
 import Constants from 'expo-constants';
 import type { BookmarkType } from '@/types/bookmarks';
 import type { NewBookmark } from '@/db/schema';
+import { debugLog, pushEvent } from './debug';
 import { urlHashFor } from './hash';
 
 export const METADATA_TIMEOUT_MS = 12000;
@@ -19,7 +20,7 @@ const EXTRACTOR_PATH = '/metadata';
 
 function resolveExtractorBaseUrl(): string | null {
   const fromEnv = process.env.EXPO_PUBLIC_METADATA_EXTRACTOR_URL?.trim();
-  console.log(fromEnv);
+  debugLog('extractor-url', fromEnv ?? '(unset)');
   if (fromEnv) return fromEnv.replace(/\/+$/, '');
 
   const hostUri = Constants.expoConfig?.hostUri;
@@ -282,15 +283,23 @@ function mapExtractorResult(url: string, meta: ExtractorResult): Partial<NewBook
   };
 }
 
-async function fetchJsonWithTimeout(input: string): Promise<unknown | null> {
+type FetchOutcome = { status?: number; data?: unknown; error?: string };
+
+async function fetchJsonWithOutcome(input: string): Promise<FetchOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
   try {
     const res = await fetch(input, { signal: controller.signal });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+    if (!res.ok) return { status: res.status, error: `HTTP ${res.status}` };
+    return { status: res.status, data: await res.json() };
+  } catch (err) {
+    const reason =
+      err instanceof Error && err.name === 'AbortError'
+        ? `timeout after ${METADATA_TIMEOUT_MS}ms`
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    return { error: reason };
   } finally {
     clearTimeout(timer);
   }
@@ -304,9 +313,15 @@ export async function fetchMetadataViaExtractor(
   const target = `${baseUrl}${EXTRACTOR_PATH}?url=${encodeURIComponent(
     url
   )}&timeout_ms=${METADATA_TIMEOUT_MS}`;
-  const data = await fetchJsonWithTimeout(target);
-  if (!data || typeof data !== 'object') return null;
-  return data as ExtractorResult;
+  debugLog('extractor', 'requesting', target);
+  const outcome = await fetchJsonWithOutcome(target);
+  if (outcome.data && typeof outcome.data === 'object') {
+    return outcome.data as ExtractorResult;
+  }
+  const reason = outcome.error ?? `status=${outcome.status ?? '?'}`;
+  debugLog('extractor', 'failed', reason);
+  pushEvent('extractor', `failed ${reason}`);
+  return null;
 }
 
 /**
@@ -315,10 +330,14 @@ export async function fetchMetadataViaExtractor(
  */
 export async function fetchMetadataFromAzizbecha(url: string): Promise<ExtractorResult | null> {
   const AZIZBECHA_API = 'https://azizbecha-link-preview-api.vercel.app/get';
-  const data = await fetchJsonWithTimeout(
+  const outcome = await fetchJsonWithOutcome(
     `${AZIZBECHA_API}?url=${encodeURIComponent(url)}&timeout=15000`
   );
-  if (!data || typeof data !== 'object') return null;
+  const data = outcome.data;
+  if (!data || typeof data !== 'object') {
+    debugLog('azizbecha', 'failed', outcome.error ?? `status=${outcome.status ?? '?'}`);
+    return null;
+  }
 
   const raw = data as {
     status?: number;
@@ -331,11 +350,11 @@ export async function fetchMetadataFromAzizbecha(url: string): Promise<Extractor
   };
 
   if (!raw.title && !raw.images?.length) {
-    console.log('no data');
+    debugLog('azizbecha', 'no data');
     return null;
   }
 
-  console.log(raw);
+  debugLog('azizbecha', 'loaded', raw.title ?? raw.url ?? '?');
   return {
     status: raw.status,
     url: raw.url,
@@ -347,20 +366,32 @@ export async function fetchMetadataFromAzizbecha(url: string): Promise<Extractor
   };
 }
 
+export type ExtractSource = 'self-hosted' | 'interim';
+
 /**
  * Default extraction path used by enrichment: prefer our self-hosted FastAPI
- * extractor, else the interim third-party API. Returns null when both fail.
+ * extractor, else the interim third-party API. Returns null when both fail,
+ * otherwise the mapped patch plus which source produced it.
  */
-export async function fetchExtractedMetadata(url: string): Promise<Partial<NewBookmark> | null> {
+export async function fetchExtractedMetadata(
+  url: string
+): Promise<{ patch: Partial<NewBookmark>; source: ExtractSource } | null> {
+  const startedAt = Date.now();
   let meta: ExtractorResult | null = null;
+  let source: ExtractSource = 'interim';
 
   if (METADATA_EXTRACTOR_URL) {
+    source = 'self-hosted';
     meta = await fetchMetadataViaExtractor(url, METADATA_EXTRACTOR_URL);
-    console.log(meta);
   }
   if (!meta) {
+    source = 'interim';
+    debugLog('metadata', 'falling back to interim API');
     meta = await fetchMetadataFromAzizbecha(url);
   }
 
-  return meta ? mapExtractorResult(url, meta) : null;
+  const patch = meta ? mapExtractorResult(url, meta) : null;
+  const ms = Date.now() - startedAt;
+  pushEvent('enrich', `extractor=${source} ${ms}ms ${patch ? 'loaded' : 'no-metadata'}`);
+  return patch ? { patch, source } : null;
 }

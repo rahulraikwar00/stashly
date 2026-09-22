@@ -2,7 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { PinTypePill } from '@/components/Home/PinTypePill';
 import type { AppTheme } from '@/constants/theme';
 import type { Bookmark, NewBookmark } from '@/db/schema';
-import { enrichBookmark, getBookmarkByUrlHash, saveBookmark } from '@/db/bookmarkService';
+import {
+  enrichBookmark,
+  getBookmarkByUrlHash,
+  saveBookmark,
+  type EnrichmentResult,
+} from '@/db/bookmarkService';
 import { markSavingComplete } from '@/hooks/pendingRefresh';
 import { useIncomingShare, type ResolvedSharePayload, type SharePayload } from 'expo-sharing';
 import { Stack, useRouter, useTheme } from 'expo-router';
@@ -23,6 +28,25 @@ import { urlHashFor } from '@/utils/hash';
 import { faviconForDomain } from '@/utils/metadata';
 
 type Status = 'idle' | 'saving' | 'done';
+
+type EnrichTone = 'loading' | 'success' | 'warn' | 'error';
+type EnrichStatus = { tone: EnrichTone; text: string } | null;
+
+function formatMs(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+}
+
+function enrichFeedbackFor(result: EnrichmentResult): Exclude<EnrichStatus, null> {
+  const time = formatMs(result.durationMs);
+  switch (result.source) {
+    case 'direct':
+      return { tone: 'success', text: `Loaded on-device · ${time}` };
+    case 'extractor-self-hosted':
+      return { tone: 'success', text: `Loaded via self-hosted extractor · ${time}` };
+    case 'extractor-interim':
+      return { tone: 'warn', text: `Loaded via interim extractor · ${time}` };
+  }
+}
 
 function isHttpUrl(value: string): boolean {
   try {
@@ -58,8 +82,7 @@ export default function AddBookmarkScreen() {
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [bookmark, setBookmark] = useState<Bookmark | null>(null);
-  const [enrichmentFailed, setEnrichmentFailed] = useState(false);
-  const [enriched, setEnriched] = useState(false);
+  const [enrichStatus, setEnrichStatus] = useState<EnrichStatus>(null);
 
   const urlRef = useRef('');
   useEffect(() => {
@@ -150,26 +173,42 @@ export default function AddBookmarkScreen() {
     clearSharedPayloads();
     setBookmark(saved);
     setStatus('done');
+    setEnrichStatus({ tone: 'loading', text: 'Fetching the title and image…' });
 
     void enrichInBackground(saved.id, trimmed);
   };
 
   const enrichInBackground = async (id: number, urlToEnrich: string) => {
     try {
-      const metadata = await enrichBookmark(id, urlToEnrich);
-      if (metadata) {
-        setEnriched(true);
-        setBookmark((prev) => (prev && prev.id === id ? { ...prev, ...metadata } : prev));
+      const result = await enrichBookmark(id, urlToEnrich);
+      if (result) {
+        setBookmark((prev) => (prev && prev.id === id ? { ...prev, ...result.patch } : prev));
+        setEnrichStatus(enrichFeedbackFor(result));
         markSavingComplete();
       } else {
-        setEnrichmentFailed(true);
+        setEnrichStatus({
+          tone: 'error',
+          text: 'No details available — saved with the domain only.',
+        });
       }
     } catch {
-      setEnrichmentFailed(true);
+      setEnrichStatus({
+        tone: 'error',
+        text: 'No details available — saved with the domain only.',
+      });
     }
   };
 
   const pin = bookmark ? bookmarkToPin(bookmark) : null;
+
+  const ENRICH_DOT_COLORS: Record<EnrichTone, string> = {
+    loading: c.textFaint,
+    success: '#34D399',
+    warn: '#FBBF24',
+    error: '#F87171',
+  };
+  const enrichToneColor = enrichStatus ? ENRICH_DOT_COLORS[enrichStatus.tone] : c.textMuted;
+  const enrichText = enrichStatus?.text ?? 'Fetching the title and image…';
 
   return (
     <KeyboardAvoidingView
@@ -259,13 +298,15 @@ export default function AddBookmarkScreen() {
                 <Text className="text-[15px] font-bold" style={{ color: c.text }}>
                   Saved to your library
                 </Text>
-                <Text className="text-[11px]" style={{ color: c.textMuted }}>
-                  {enrichmentFailed
-                    ? 'Could not load extra details — saved with the domain only.'
-                    : enriched
-                      ? 'Title, image and details loaded automatically.'
-                      : 'Saved! Fetching the title and image…'}
-                </Text>
+                <View className="mt-0.5 flex-row items-center">
+                  <View
+                    className="mr-1.5 h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: enrichToneColor }}
+                  />
+                  <Text className="text-[11px]" style={{ color: c.textMuted }} numberOfLines={1}>
+                    {enrichText}
+                  </Text>
+                </View>
               </View>
             </View>
 

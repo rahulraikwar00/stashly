@@ -9,6 +9,7 @@ import {
   isEmptyMetadata,
   isWalledDomain,
 } from '@/utils/metadata';
+import { pushEvent } from '@/utils/debug';
 
 /**
  * Default page size for paginated queries.
@@ -159,6 +160,14 @@ export async function getBookmarkByUrlHash(urlHash: string): Promise<Bookmark | 
   return result;
 }
 
+export type EnrichmentSource = 'direct' | 'extractor-self-hosted' | 'extractor-interim';
+
+export interface EnrichmentResult {
+  patch: Partial<NewBookmark>;
+  source: EnrichmentSource;
+  durationMs: number;
+}
+
 /**
  * Enriches an already-saved bookmark with fetched page metadata.
  * Runs as a fire-and-forget async job (native fetch I/O, never blocks the UI).
@@ -169,23 +178,24 @@ export async function getBookmarkByUrlHash(urlHash: string): Promise<Bookmark | 
  *     hides metadata from browser-like clients (Instagram/TikTok/...), falls
  *     back to the server-side extractor (backend/) which uses a crawler UA.
  *
- * Returns the metadata patch on success, or null when no metadata could be found.
+ * Returns an EnrichmentResult (metadata patch + source + duration) on success,
+ * or null when no metadata could be found.
  */
-export async function enrichBookmark(
-  id: number,
-  url: string
-): Promise<Partial<NewBookmark> | null> {
+export async function enrichBookmark(id: number, url: string): Promise<EnrichmentResult | null> {
+  const startedAt = Date.now();
+  const tag = `bookmark#${id}`;
   let direct: Partial<NewBookmark> | undefined;
 
   try {
     direct = await fetchPageMetadata(url);
   } catch (err) {
-    console.warn(`Direct metadata fetch failed for bookmark #${id}:`, err);
+    pushEvent('enrich', `${tag} direct-error ${err instanceof Error ? err.message : String(err)}`);
   }
 
   if (direct && !isEmptyMetadata(direct)) {
     await updateBookmark(id, direct);
-    return direct;
+    pushEvent('enrich', `${tag} direct loaded ${Date.now() - startedAt}ms`);
+    return { patch: direct, source: 'direct', durationMs: Date.now() - startedAt };
   }
 
   let domain = '';
@@ -196,15 +206,28 @@ export async function enrichBookmark(
   }
 
   const needsExtractor = isWalledDomain(domain) || !direct || isEmptyMetadata(direct);
+  pushEvent(
+    'enrich',
+    `${tag} tier=extractor host=${domain || '?'} reason=${isWalledDomain(domain) ? 'walled' : 'empty-direct'}`
+  );
   if (needsExtractor) {
     const extracted = await fetchExtractedMetadata(url);
     if (extracted) {
-      await updateBookmark(id, extracted);
-      return extracted;
+      await updateBookmark(id, extracted.patch);
+      const durationMs = Date.now() - startedAt;
+      pushEvent(
+        'enrich',
+        `${tag} ${extracted.source === 'self-hosted' ? 'extractor-self-hosted' : 'extractor-interim'} loaded ${durationMs}ms`
+      );
+      return {
+        patch: extracted.patch,
+        source: extracted.source === 'self-hosted' ? 'extractor-self-hosted' : 'extractor-interim',
+        durationMs,
+      };
     }
   }
 
-  console.warn(`Metadata enrichment failed for bookmark #${id}`);
+  pushEvent('enrich', `${tag} failed ${Date.now() - startedAt}ms`);
   return null;
 }
 
