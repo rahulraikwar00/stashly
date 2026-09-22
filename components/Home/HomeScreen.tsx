@@ -1,59 +1,76 @@
 import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
-import { ActivityIndicator, FlatList, Text, View } from 'react-native';
-import { PinCard } from './PinCard';
+import {
+  ActivityIndicator,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
+import { MasonryGrid } from './MasonryGrid';
 import { usePins } from '@/hooks/usePins';
+
+const NEAR_BOTTOM = 240;
 
 export function HomeScreen() {
   const theme = useTheme() as AppTheme;
-  const { pins, loading, hasMore, error, loadMore } = usePins();
+  const { pins, loading, refreshing, hasMore, error, loadMore, refresh } = usePins();
+
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+    const isNearBottom =
+      layoutMeasurement.height + contentOffset.y >= contentSize.height - NEAR_BOTTOM;
+    if (isNearBottom) loadMore();
+  };
 
   return (
-    <FlatList
-      data={pins}
-      numColumns={2}
-      keyExtractor={(item) => String(item.id)}
-      renderItem={({ item }) => <PinCard pin={item} />}
-      columnWrapperStyle={{ paddingHorizontal: 8, gap: 8 }}
-      contentContainerStyle={{ paddingBottom: 32 }}
-      onEndReached={loadMore}
-      onEndReachedThreshold={0.5}
-      showsVerticalScrollIndicator={false}
+    <ScrollView
       style={{ backgroundColor: theme.colors.background }}
-      ListHeaderComponent={
-        <View className="px-4 pb-4 pt-6">
-          <Text
-            className="text-[28px] font-bold tracking-tight"
-            style={{ color: theme.colors.text }}>
-            Bookmarks
+      contentContainerStyle={{ paddingBottom: 32 }}
+      showsVerticalScrollIndicator={false}
+      alwaysBounceVertical
+      onScroll={onScroll}
+      scrollEventThrottle={16}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={refresh}
+          tintColor={theme.colors.textMuted}
+          colors={[theme.colors.textMuted]}
+          progressBackgroundColor={theme.colors.card}
+        />
+      }>
+      <View className="px-4 pb-4 pt-6">
+        <Text className="text-[28px] font-bold tracking-tight" style={{ color: theme.colors.text }}>
+          Bookmarks
+        </Text>
+        <Text className="mt-0.5 text-[12px]" style={{ color: theme.colors.textMuted }}>
+          Your saved inspiration
+        </Text>
+      </View>
+
+      {pins.length > 0 && <MasonryGrid pins={pins} />}
+
+      <View className="py-6">
+        {loading && <ActivityIndicator />}
+        {!hasMore && pins.length > 0 && (
+          <Text className="text-center text-[11px]" style={{ color: theme.colors.textFaint }}>
+            {"You've reached the end"}
           </Text>
-          <Text className="mt-0.5 text-[12px]" style={{ color: theme.colors.textMuted }}>
-            Your saved inspiration
+        )}
+        {error && (
+          <Text className="text-center text-[11px]" style={{ color: '#EF4444' }}>
+            Something went wrong. Pull to retry.
           </Text>
-        </View>
-      }
-      ListFooterComponent={
-        <View className="py-6">
-          {loading && <ActivityIndicator />}
-          {!hasMore && pins.length > 0 && (
-            <Text className="text-center text-[11px]" style={{ color: theme.colors.textFaint }}>
-              You've reached the end
-            </Text>
-          )}
-          {error && (
-            <Text className="text-center text-[11px]" style={{ color: '#EF4444' }}>
-              Something went wrong. Pull to retry.
-            </Text>
-          )}
-        </View>
-      }
-      ListEmptyComponent={
-        !loading ? (
+        )}
+        {!loading && !refreshing && pins.length === 0 && !error && (
           <Text className="mt-16 text-center text-[12px]" style={{ color: theme.colors.textMuted }}>
             No bookmarks yet.
           </Text>
-        ) : null
-      }
-    />
+        )}
+      </View>
+    </ScrollView>
   );
 }

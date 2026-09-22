@@ -1,4 +1,4 @@
-export type BookmarkType = "article" | "video" | "image" | "link";
+export type BookmarkType = 'article' | 'image' | 'link' | 'video';
 
 export type Pin = {
   id: string;
@@ -9,5 +9,4 @@ export type Pin = {
   image: string;
   tags: string[];
   type: BookmarkType;
-  height: number;
 };

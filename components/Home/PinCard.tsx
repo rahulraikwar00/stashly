@@ -4,18 +4,18 @@ import { useTheme } from 'expo-router';
 import type { AppTheme } from '@/constants/theme';
 import { PinTypePill } from './PinTypePill';
 
-export function PinCard({ pin }: { pin: Pin }) {
+export function PinCard({ pin, imageHeight }: { pin: Pin; imageHeight: number }) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
 
   return (
     <Pressable
-      className="mb-2 overflow-hidden rounded-2xl active:opacity-85"
-      style={{ backgroundColor: c.surface }}>
+      className="mb-2 w-full overflow-hidden rounded-2xl active:opacity-85"
+      style={{ backgroundColor: c.surface, width: '100%' }}>
       <View className="relative">
         <Image
           source={{ uri: pin.image }}
-          style={{ width: '100%', height: pin.height }}
+          style={{ width: '100%', height: imageHeight }}
           resizeMode="cover"
         />
         {pin.type !== 'article' && <PinTypePill type={pin.type} theme={theme} />}
