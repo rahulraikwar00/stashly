@@ -4,15 +4,32 @@ import { useTheme } from 'expo-router';
 import type { AppTheme } from '@/constants/theme';
 import { PinTypePill } from './PinTypePill';
 import { typeColor } from '@/utils/pinColors';
+import { formatRelativeTime } from '@/utils/pin';
+import { Ionicons } from '@expo/vector-icons';
 
-export function PinCard({ pin, imageHeight }: { pin: Pin; imageHeight: number }) {
+export function PinCard({
+  pin,
+  imageHeight,
+  onPress,
+  onLongPress,
+  onPressMenu,
+}: {
+  pin: Pin;
+  imageHeight: number;
+  onPress?: () => void;
+  onLongPress?: () => void;
+  onPressMenu?: () => void;
+}) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
 
   return (
     <Pressable
       className="mb-2 w-full overflow-hidden rounded-2xl active:opacity-85"
-      style={{ backgroundColor: c.surface, width: '100%' }}>
+      style={{ backgroundColor: c.surface, width: '100%' }}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}>
       {pin.image ? (
         <View className="relative">
           <Image
@@ -21,6 +38,13 @@ export function PinCard({ pin, imageHeight }: { pin: Pin; imageHeight: number })
             resizeMode="cover"
           />
           {pin.type !== 'article' && <PinTypePill type={pin.type} theme={theme} />}
+          <Pressable
+            onPress={onPressMenu}
+            hitSlop={6}
+            className="absolute right-2 top-2 h-7 w-7 items-center justify-center rounded-full active:opacity-70"
+            style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
+            <Ionicons name="ellipsis-horizontal" size={15} color="#FFFFFF" />
+          </Pressable>
         </View>
       ) : null}
 
@@ -40,12 +64,20 @@ export function PinCard({ pin, imageHeight }: { pin: Pin; imageHeight: number })
             numberOfLines={1}>
             {pin.source}
           </Text>
+          <Text className="ml-1.5 text-[10px]" style={{ color: c.textFaint }}>
+            · {formatRelativeTime(pin.createdAt)}
+          </Text>
           {!pin.image && (
-            <Text
-              className="text-[9px] font-bold tracking-widest"
-              style={{ color: typeColor(pin.type, theme) }}>
-              {pin.type.toUpperCase()}
-            </Text>
+            <>
+              <Text
+                className="ml-1.5 text-[9px] font-bold tracking-widest"
+                style={{ color: typeColor(pin.type, theme) }}>
+                {pin.type.toUpperCase()}
+              </Text>
+              <Pressable onPress={onPressMenu} hitSlop={6} className="ml-1 p-0.5 active:opacity-60">
+                <Ionicons name="ellipsis-horizontal" size={13} color={c.textFaint} />
+              </Pressable>
+            </>
           )}
         </View>
       </View>

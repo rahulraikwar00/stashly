@@ -29,7 +29,8 @@ export default function RootLayout() {
               headerShadowVisible: false,
               contentStyle: { backgroundColor: theme.colors.background },
             }}>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="index" options={{ headerShown: false }} />
+            <Stack.Screen name="add-bookmark" options={{ presentation: 'modal' }} />
           </Stack>
         </ThemeProvider>
       </Migrations>

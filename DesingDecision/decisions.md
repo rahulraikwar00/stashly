@@ -5,7 +5,57 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
-## D-008 — Real image aspect ratios + responsive masonry columns
+## D-009 — Card-first management: no Manage tab, popup actions + detail on cards
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+Management actions lived in a separate Manage tab (favorite/read/archive/delete
+rows, All/Favorites/Unread/Archived scopes). The Library grid was not
+interactive — tapping a card did nothing. Users expect to act on a bookmark
+from the card itself: long-press (or a ⋯ button) for quick actions, tap for
+details.
+
+### Decision
+- **Manage tab deleted.** Cards carry every action — optimistic toggles
+  (favorite, read, archive), delete (with Alert confirm), copy URL, and open link.
+  Archived items remain reachable via a new **Archived** status chip in the
+  Library's filter row (query maps `archived: chip === 'archived'`). The app is
+  now a single root screen (`src/app/index.tsx`, Library) + the
+  `add-bookmark` modal; tab bar removed.
+- **Card interactions** (`PinCard`): `onPress` → detail popover;
+  `onLongPress` (350ms) / the ⋯ button → action popover. The ⋯ sits over the
+  image top-right (or in the caption row when image-less); nested-Pressable
+  responder routing keeps it from triggering the card tap.
+- **Centered popup cards** (`components/Pin/`): `PopupCard` (RN Modal, dimmed
+  backdrop, tap-outside/✕ to close), `PinActionMenu` (Open link · View details
+  · Favorite · Read · Archive · Copy URL · Delete) and `PinDetailPopover`
+  (image, title, source, description, tags, notes, URL, added date, Open-link
+  button + icon toggles).
+- **Optimistic state** (`hooks/usePinMutations.ts`): toggles apply instantly,
+  drop the pin from view when it no longer matches the active filters, and roll
+  back on error — reusing the pattern the Manage screen had. The open popover
+  stays in sync via an `onMutated` callback and closes when the pin leaves the
+  current view (or is deleted).
+- **`Pin` view-model extended** with `url`, `notes`, `author`, `createdAt` —
+  all already exist on the `bookmarks` table, so **no schema/migration change**.
+- **Bottom-center Add button** (`AddDock`): circular primary FAB above the
+  safe-area inset replaces the old header + button; opens `/add-bookmark`.
+- **Relative age** on each card caption (`· 10d`) via `formatRelativeTime`
+  (`2s · 10m · 5h · 10d · 3w · 9mo · 1y`); detail popover also shows the exact
+  date via `formatPinDate`.
+- **Copy URL** uses `expo-clipboard`; link launch uses `Linking.openURL` and
+  marks the pin read on open.
+
+### Why not
+- Keeping the Manage tab — redundant once cards expose the same actions and
+  the Archived filter is a chip; a second tab would duplicate scope/state.
+- A bottom-sheet library (`@gorhom/bottom-sheet`) — centered popover cards
+  match the brief and need no new native deps (only a CLI-installed
+  `expo-clipboard`).
+
+---
 
 **Status:** accepted  
 **Date:** 2026-09-23

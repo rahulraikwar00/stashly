@@ -1,12 +1,13 @@
 // utils/pin.ts
 import type { Bookmark } from '@/db/schema';
-import type { Pin, BookmarkType } from '@/types/bookmarks';
+import type { Pin, BookmarkType, BookmarkQuery } from '@/types/bookmarks';
 
 export const DEFAULT_IMAGE_RATIO = 0.7;
 
 export function bookmarkToPin(b: Bookmark): Pin {
   return {
     id: b.id,
+    url: b.url,
     title: b.title,
     description: b.description,
     source: b.siteName || b.domain || '',
@@ -14,6 +15,9 @@ export function bookmarkToPin(b: Bookmark): Pin {
     image: b.image,
     tags: b.tags ? JSON.parse(b.tags) : [],
     type: (b.type ?? 'link') as BookmarkType,
+    notes: b.notes,
+    author: b.author,
+    createdAt: b.createdAt,
     isFavorite: b.isFavorite,
     isArchived: b.isArchived,
     isRead: b.isRead,
@@ -119,4 +123,48 @@ export function estimateCardHeight(pin: Pin): number {
   const sourceRow = 18; // favicon + mt-1.5
   const margin = 8; // mb-2
   return Math.round(imageH * 180) + padding + titleH + sourceRow + margin;
+}
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+const WEEK = 7 * DAY;
+const MONTH = 30 * DAY;
+const YEAR = 365 * DAY;
+
+/**
+ * Compact relative age, e.g. "2s · 10m · 5h · 10d · 3w · 9mo · 1y".
+ */
+export function formatRelativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  if (diff < MINUTE) return `${Math.max(0, Math.floor(diff / 1000))}s`;
+  if (diff < HOUR) return `${Math.floor(diff / MINUTE)}m`;
+  if (diff < DAY) return `${Math.floor(diff / HOUR)}h`;
+  if (diff < WEEK) return `${Math.floor(diff / DAY)}d`;
+  if (diff < MONTH) return `${Math.floor(diff / WEEK)}w`;
+  if (diff < YEAR) return `${Math.floor(diff / MONTH)}mo`;
+  return `${Math.floor(diff / YEAR)}y`;
+}
+
+export function formatPinDate(ms: number): string {
+  const d = new Date(ms);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/**
+ * Whether a pin still belongs in the current filtered list after an optimistic
+ * toggle (favorite/read/archive) or when a type/search filter is active.
+ */
+export function pinMatchesFilters(pin: Pin, query: BookmarkQuery): boolean {
+  if (query.archived !== undefined && pin.isArchived !== query.archived) return false;
+  if (query.type && pin.type !== query.type) return false;
+  if (query.favorite !== undefined && pin.isFavorite !== query.favorite) return false;
+  if (query.unread !== undefined && pin.isRead === query.unread) return false;
+
+  const search = query.search?.trim().toLowerCase();
+  if (search) {
+    const haystack = [pin.title, pin.description, pin.source, pin.url].join(' ').toLowerCase();
+    if (!haystack.includes(search)) return false;
+  }
+  return true;
 }

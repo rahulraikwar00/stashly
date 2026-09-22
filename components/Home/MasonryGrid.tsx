@@ -14,7 +14,17 @@ function columnsForWidth(width: number): number {
   return 2;
 }
 
-export function MasonryGrid({ pins }: { pins: Pin[] }) {
+export function MasonryGrid({
+  pins,
+  onPressPin,
+  onLongPressPin,
+  onPressMenu,
+}: {
+  pins: Pin[];
+  onPressPin?: (pin: Pin) => void;
+  onLongPressPin?: (pin: Pin) => void;
+  onPressMenu?: (pin: Pin) => void;
+}) {
   const [containerWidth, setContainerWidth] = useState(0);
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -32,7 +42,14 @@ export function MasonryGrid({ pins }: { pins: Pin[] }) {
       {columns.map((items, index) => (
         <View key={index} className="flex-1" style={{ marginHorizontal: COLUMN_MARGIN }}>
           {items.map((pin) => (
-            <PinCard key={pin.id} pin={pin} imageHeight={imageHeightFor(pin, columnWidth)} />
+            <PinCard
+              key={pin.id}
+              pin={pin}
+              imageHeight={imageHeightFor(pin, columnWidth)}
+              onPress={() => onPressPin?.(pin)}
+              onLongPress={() => onLongPressPin?.(pin)}
+              onPressMenu={() => onPressMenu?.(pin)}
+            />
           ))}
         </View>
       ))}

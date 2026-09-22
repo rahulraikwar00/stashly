@@ -10,6 +10,7 @@ export type BookmarkQuery = {
 
 export type Pin = {
   id: number;
+  url: string;
   title: string;
   description: string;
   source: string;
@@ -17,6 +18,9 @@ export type Pin = {
   image: string;
   tags: string[];
   type: BookmarkType;
+  notes: string;
+  author: string;
+  createdAt: number;
   isFavorite: boolean;
   isArchived: boolean;
   isRead: boolean;
