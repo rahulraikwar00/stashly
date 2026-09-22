@@ -3,7 +3,9 @@ import '@/global.css';
 import { Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { Suspense, useEffect } from 'react';
-import { ActivityIndicator, useColorScheme } from 'react-native';
+import { useColorScheme } from 'nativewind';
+
+import { ActivityIndicator } from 'react-native';
 
 import migrations from '@/drizzle/migrations';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
@@ -15,7 +17,7 @@ export const DATABASE_NAME = 'bookmarks';
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  const { colorScheme } = useColorScheme(); // ← destructure
   const theme = colorScheme === 'dark' ? MyDarkTheme : MyLightTheme;
 
   return (

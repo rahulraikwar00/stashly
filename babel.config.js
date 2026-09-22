@@ -1,12 +1,10 @@
 module.exports = function (api) {
   api.cache(true);
-  let plugins = [];
 
-  plugins.push('react-native-worklets/plugin');
+  const plugins = ['react-native-worklets/plugin', ['inline-import', { extensions: ['.sql'] }]];
 
   return {
     presets: [['babel-preset-expo', { jsxImportSource: 'nativewind' }], 'nativewind/babel'],
-
     plugins,
   };
 };
