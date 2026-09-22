@@ -5,6 +5,84 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
+## D-007 — Instant done: render the card now, update in place when metadata lands
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+D-006 added a server-side extraction fallback that can take several seconds
+(walled platforms). D-005 showed a loading state until enrichment resolved, which
+leaves the user staring at a spinner on exactly the slow cases.
+
+### Decision
+- The add-bookmark screen sets `status='done'` **immediately** after the row is
+  inserted and shows a pin card built from the URL alone (hostname title, Google
+  S2 favicon, no image — per D-004).
+- Enrichment runs un-awaited; when it resolves, the card is updated **in place**
+  via `setBookmark({ ...prev, ...metadata })`.
+- The "Saved" subtitle reflects the phase: *"Saved! Fetching the title and
+  image…"* → *"Title, image and details loaded automatically."* (or a
+  saved-with-domain-only note on failure).
+- On completion we re-flag `pendingRefresh` so the Library refetches on its next
+  focus if the user has already left the screen.
+
+---
+
+## D-006 — Server-side metadata extractor (backend/) with crawler-UA fallback
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+Instagram reels (and similar platforms: TikTok, Pinterest, X/Twitter) serve a
+consent/JS shell with **no og tags** to browser-like clients, so the device-side
+direct fetch (`utils/metadata`) returns an empty result and the card stays
+hostname-only. Verified empirically: changing only the User-Agent to a crawler
+UA (`Googlebot` / `facebookexternalhit`) makes Instagram serve the real
+`og:title` (caption), `og:description` (24K likes…), and `og:image` (thumbnail)
+in static HTML — no headless browser needed.
+
+### Decision
+- New `backend/` folder: a small FastAPI service (`httpx` + regex og/twitter
+  parse) that fetches server-side with a **crawler UA for walled hosts** and a
+  normal browser UA otherwise.
+  - `GET /health`, `GET /metadata?url=…&timeout_ms=…`.
+  - Response mirrors the app's `NewBookmark` fields (title, description, image,
+    favicon, siteName, author, publishedAt, language, type).
+  - HTTP(S) URLs only; SSRF guard rejects hosts resolving to private/reserved
+    addresses (including the cloud-metadata 169.254.169.254).
+- **Tiered enrichment** in `enrichBookmark(id, url)`:
+  1. direct device-side `fetchPageMetadata` — private and fast for normal sites;
+  2. if the direct result is empty, **or** the host is in `WALLED_HOSTS`
+     (`instagram.com`, `tiktok.com`, `pinterest.com`, `x.com`, `twitter.com`,
+     `youtube.com`), call the extractor.
+- **Extractor URL resolution** (`utils/metadata.ts`): `EXPO_PUBLIC_METADATA_EXTRACTOR_URL`
+  env → else `http://<dev-machine-ip>:8000` derived from Expo `hostUri` (local
+  dev auto-works on device) → else `null`.
+- **Interim plumbing:** when no self-hosted extractor is configured, fall back to
+  the free public API that powers `react-native-preview-url`
+  (`azizbecha-link-preview-api.vercel.app/get`), so the flow works today. Adapter
+  maps its `{title, description, images[0].url, favicons}` shape; swap to the
+  self-hosted server is a one-line env change.
+
+### Why not
+- Playwright/headless-browser tier — unnecessary; the crawler UA already gets
+  full static og tags from the walled sites we care about. Revisit only if a
+  JS-only platform appears.
+- Installing `react-native-preview-url` — we don't render live previews; we
+  persist to SQLite. Calling its underlying extraction API directly is enough.
+- Relying on a third-party API as the permanent path — uptime/rate-limit/privacy
+  concerns; the self-hosted `backend/` is the durable choice.
+
+### Notes
+- `og:image` values may contain HTML entities (`&amp;`); both the server and the
+  app decode entities on image URLs before storage.
+- Running the phone against a local server: Android emulator reaches the host via
+  the Expo `hostUri` host (the dev machine's LAN IP), not `localhost`.
+
+---
+
 ## D-005 — Share-to-save: save first, enrich metadata in the background
 
 **Status:** accepted  

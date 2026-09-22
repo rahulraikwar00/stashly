@@ -4,11 +4,50 @@
 // parsing. Network I/O (`fetch`) runs on the native thread and never blocks
 // the JS/UI thread.
 
+import Constants from 'expo-constants';
 import type { BookmarkType } from '@/types/bookmarks';
 import type { NewBookmark } from '@/db/schema';
 import { urlHashFor } from './hash';
 
 export const METADATA_TIMEOUT_MS = 12000;
+
+// Base URL of our FastAPI metadata extractor (backend/). Resolution order:
+//   1. EXPO_PUBLIC_METADATA_EXTRACTOR_URL env var (deployed server)
+//   2. http://<dev-machine-ip>:8000 derived from Expo's hostUri (local dev)
+//   3. null → fall back to the interim third-party extraction API
+const EXTRACTOR_PATH = '/metadata';
+
+function resolveExtractorBaseUrl(): string | null {
+  const fromEnv = process.env.EXPO_PUBLIC_METADATA_EXTRACTOR_URL?.trim();
+  console.log(fromEnv);
+  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+
+  const hostUri = Constants.expoConfig?.hostUri;
+  if (hostUri) {
+    const host = hostUri.split(':')[0];
+    if (host) return `http://${host}:8000`;
+  }
+
+  return null;
+}
+
+export const METADATA_EXTRACTOR_URL = resolveExtractorBaseUrl();
+
+// Sites that serve a consent/JS shell (or require a crawler UA) to normal
+// browser-like clients, so a device-side direct fetch cannot extract metadata.
+export const WALLED_HOSTS = [
+  'instagram.com',
+  'tiktok.com',
+  'pinterest.com',
+  'x.com',
+  'twitter.com',
+  'youtube.com',
+] as const;
+
+export function isWalledDomain(domain: string): boolean {
+  const d = domain.toLowerCase();
+  return WALLED_HOSTS.some((host) => d === host || d.endsWith(`.${host}`));
+}
 
 const FETCH_HEADERS = {
   'User-Agent':
@@ -36,7 +75,8 @@ const NAMED_ENTITIES: Record<string, string> = {
   ldquo: '“',
 };
 
-export function decodeEntities(value: string): string {
+export function decodeEntities(value: string | null): string {
+  if (!value) return '';
   return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity: string) => {
     if (entity.startsWith('#')) {
       const code =
@@ -151,8 +191,8 @@ export async function fetchPageMetadata(url: string): Promise<Partial<NewBookmar
 
   const ogType = readMeta(html, ['og:type']);
   const image = firstHttpUrl(finalUrl, [
-    readMeta(html, ['og:image', 'og:image:url', 'twitter:image', 'thumbnail']),
-    readMeta(html, ['og:image:secure_url']),
+    decodeEntities(readMeta(html, ['og:image', 'og:image:url', 'twitter:image', 'thumbnail'])),
+    decodeEntities(readMeta(html, ['og:image:secure_url'])),
   ]);
 
   const publishedFromMeta = toTimestamp(
@@ -186,4 +226,141 @@ export async function fetchPageMetadata(url: string): Promise<Partial<NewBookmar
       '',
     type: mapType(ogType),
   };
+}
+
+// ─────────────────────────────────────────────
+// Server-side extraction fallback
+// ─────────────────────────────────────────────
+
+export interface ExtractorResult {
+  status?: number;
+  url?: string;
+  canonicalUrl?: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  siteName?: string;
+  author?: string;
+  publishedAt?: number | null;
+  language?: string;
+  type?: string;
+}
+
+/**
+ * True when a direct parse produced no meaningful metadata, i.e. the card
+ * would render as a bare hostname link with no thumbnail.
+ */
+export function isEmptyMetadata(patch: Partial<NewBookmark>): boolean {
+  const titleMissing = !patch.title || patch.title.length === 0 || patch.title === patch.domain;
+  return !patch.image && titleMissing;
+}
+
+function mapExtractorResult(url: string, meta: ExtractorResult): Partial<NewBookmark> | null {
+  if (!meta.title && !meta.image) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(meta.url ?? meta.canonicalUrl ?? url);
+  } catch {
+    parsed = new URL(url);
+  }
+  const domain = parsed.hostname || '';
+
+  const image = decodeEntities(meta.image ?? '');
+  const validImage = image && /^https?:\/\//i.test(image) ? image : '';
+
+  return {
+    title: cleanText(decodeEntities(meta.title || domain)).slice(0, 500),
+    description: cleanText(decodeEntities(meta.description || '')).slice(0, 1000),
+    image: validImage,
+    favicon: faviconForDomain(domain),
+    siteName: cleanText(decodeEntities(meta.siteName || domain)).slice(0, 200),
+    author: cleanText(decodeEntities(meta.author || '')).slice(0, 200),
+    publishedAt: typeof meta.publishedAt === 'number' ? meta.publishedAt : null,
+    language: (meta.language || '').toLowerCase().split('-')[0],
+    type: mapType(meta.type ?? ''),
+  };
+}
+
+async function fetchJsonWithTimeout(input: string): Promise<unknown | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
+  try {
+    const res = await fetch(input, { signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Calls our FastAPI extractor (backend/). Never throws. */
+export async function fetchMetadataViaExtractor(
+  url: string,
+  baseUrl: string
+): Promise<ExtractorResult | null> {
+  const target = `${baseUrl}${EXTRACTOR_PATH}?url=${encodeURIComponent(
+    url
+  )}&timeout_ms=${METADATA_TIMEOUT_MS}`;
+  const data = await fetchJsonWithTimeout(target);
+  if (!data || typeof data !== 'object') return null;
+  return data as ExtractorResult;
+}
+
+/**
+ * Interim fallback: the public link-preview API used by react-native-preview-url.
+ * Only used when no self-hosted extractor is configured. Never throws.
+ */
+export async function fetchMetadataFromAzizbecha(url: string): Promise<ExtractorResult | null> {
+  const AZIZBECHA_API = 'https://azizbecha-link-preview-api.vercel.app/get';
+  const data = await fetchJsonWithTimeout(
+    `${AZIZBECHA_API}?url=${encodeURIComponent(url)}&timeout=15000`
+  );
+  if (!data || typeof data !== 'object') return null;
+
+  const raw = data as {
+    status?: number;
+    title?: string;
+    description?: string;
+    url?: string;
+    canonical?: string;
+    siteName?: string;
+    images?: { url?: string }[];
+  };
+
+  if (!raw.title && !raw.images?.length) {
+    console.log('no data');
+    return null;
+  }
+
+  console.log(raw);
+  return {
+    status: raw.status,
+    url: raw.url,
+    canonicalUrl: raw.canonical,
+    title: raw.title,
+    description: raw.description,
+    image: raw.images?.find((img) => img.url)?.url ?? '',
+    siteName: raw.siteName,
+  };
+}
+
+/**
+ * Default extraction path used by enrichment: prefer our self-hosted FastAPI
+ * extractor, else the interim third-party API. Returns null when both fail.
+ */
+export async function fetchExtractedMetadata(url: string): Promise<Partial<NewBookmark> | null> {
+  let meta: ExtractorResult | null = null;
+
+  if (METADATA_EXTRACTOR_URL) {
+    meta = await fetchMetadataViaExtractor(url, METADATA_EXTRACTOR_URL);
+    console.log(meta);
+  }
+  if (!meta) {
+    meta = await fetchMetadataFromAzizbecha(url);
+  }
+
+  return meta ? mapExtractorResult(url, meta) : null;
 }

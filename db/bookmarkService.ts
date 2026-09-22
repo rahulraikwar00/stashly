@@ -3,7 +3,12 @@ import { and, desc, eq, like, or, sql } from 'drizzle-orm';
 import type { BookmarkQuery } from '@/types/bookmarks';
 import { db } from './client';
 import { bookmarks, type Bookmark, type NewBookmark } from './schema';
-import { fetchPageMetadata } from '@/utils/metadata';
+import {
+  fetchExtractedMetadata,
+  fetchPageMetadata,
+  isEmptyMetadata,
+  isWalledDomain,
+} from '@/utils/metadata';
 
 /**
  * Default page size for paginated queries.
@@ -157,24 +162,49 @@ export async function getBookmarkByUrlHash(urlHash: string): Promise<Bookmark | 
 /**
  * Enriches an already-saved bookmark with fetched page metadata.
  * Runs as a fire-and-forget async job (native fetch I/O, never blocks the UI).
- * Returns the metadata patch on success, or null after all attempts fail.
+ *
+ * Two tiers:
+ *  1. Direct device-side fetch (private, fast) for normal sites.
+ *  2. When the direct result is empty, or the site is a "walled" platform that
+ *     hides metadata from browser-like clients (Instagram/TikTok/...), falls
+ *     back to the server-side extractor (backend/) which uses a crawler UA.
+ *
+ * Returns the metadata patch on success, or null when no metadata could be found.
  */
 export async function enrichBookmark(
   id: number,
-  url: string,
-  maxAttempts = 2
+  url: string
 ): Promise<Partial<NewBookmark> | null> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const metadata = await fetchPageMetadata(url);
-      await updateBookmark(id, metadata);
-      return metadata;
-    } catch (err) {
-      lastError = err;
+  let direct: Partial<NewBookmark> | undefined;
+
+  try {
+    direct = await fetchPageMetadata(url);
+  } catch (err) {
+    console.warn(`Direct metadata fetch failed for bookmark #${id}:`, err);
+  }
+
+  if (direct && !isEmptyMetadata(direct)) {
+    await updateBookmark(id, direct);
+    return direct;
+  }
+
+  let domain = '';
+  try {
+    domain = new URL(url).hostname;
+  } catch {
+    // keep ''
+  }
+
+  const needsExtractor = isWalledDomain(domain) || !direct || isEmptyMetadata(direct);
+  if (needsExtractor) {
+    const extracted = await fetchExtractedMetadata(url);
+    if (extracted) {
+      await updateBookmark(id, extracted);
+      return extracted;
     }
   }
-  console.warn(`Metadata enrichment failed for bookmark #${id}:`, lastError);
+
+  console.warn(`Metadata enrichment failed for bookmark #${id}`);
   return null;
 }
 
