@@ -11,8 +11,7 @@ import migrations from '@/drizzle/migrations';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
 import { SQLiteProvider, openDatabaseSync } from 'expo-sqlite';
-
-export const DATABASE_NAME = 'bookmarks';
+import { DATABASE_NAME } from '@/db/database';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -36,7 +35,7 @@ export default function RootLayout() {
                 headerShadowVisible: false,
                 contentStyle: { backgroundColor: theme.colors.background },
               }}>
-              <Stack.Screen name="index" options={{ title: 'Home' }} />
+              <Stack.Screen name="index" options={{ headerShown: false }} />
             </Stack>
           </ThemeProvider>
         </Migrations>

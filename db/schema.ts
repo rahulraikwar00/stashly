@@ -1,7 +1,7 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const bookmarks = sqliteTable('bookmarks', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+  id: integer('id').primaryKey({ autoIncrement: true }), // ← number
   title: text('title').notNull(),
   url: text('url').notNull(),
   description: text('description'),
@@ -11,6 +11,7 @@ export const bookmarks = sqliteTable('bookmarks', {
   tags: text('tags'), // JSON string
   type: text('type'), // "article" | "video" | ...
   createdAt: integer('created_at').notNull(),
+  height: integer('height').notNull().default(220), // ← ADD
 });
 
 // Type inference for your app

@@ -1,0 +1,1 @@
+ALTER TABLE `bookmarks` ADD `height` integer DEFAULT 220 NOT NULL;
