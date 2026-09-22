@@ -5,6 +5,45 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
+## D-008 — Real image aspect ratios + responsive masonry columns
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+Fetched thumbnails (e.g. Instagram `scontent.cdninstagram.com/...?stp=..._s640x640..`)
+have no parseable `/WIDTH/HEIGHT` path segments, so `getImageAspectRatio`
+returned `null` and every card fell back to `DEFAULT_IMAGE_RATIO` — a uniform
+"fixed" height look. Separately, the masonry grid was hard-coded to two columns,
+so tablets rendered two oversized columns instead of a denser layout.
+
+### Decision
+- **Phase A — aspect-ratio detection ladder** in `getImageAspectRatio`
+  (`utils/pin.ts`):
+  1. WordPress-style filename suffix `…-1024x683.jpg`;
+  2. explicit query params `w=` / `h=` (Cloudinary, Imgix);
+  3. `s{width}x{height}` hints in params/query (Instagram `s640x640` → ratio 1.0);
+  4. plain integer path segments (picsum `/400/600`) — kept as a later fallback.
+  Unknown URL shapes still fall back to `0.7`. Image heights are always
+  `columnWidth × ratio` (`imageHeightFor` unchanged) — the column width is the
+  only controlled dimension, preserving the image's original aspect ratio.
+- **Phase B — responsive N-column masonry:**
+  - `splitColumns` (hardcoded `{left, right}`) replaced by `splitIntoColumns`
+    (balanced by accumulated ratio height) in `utils/pin.ts`;
+  - `MasonryGrid` derives the column count from container-width breakpoints
+    (`<600` → 2, `600–959` → 3, `≥960` → 4) and computes each column's width
+    from that count — wider devices/landscape get more, narrower columns.
+- The 180px add-bookmark preview and 52×52 Manage thumbnails stay as
+  intentional fixed crops.
+
+### Why not
+- Measuring true pixels on-device (`Image.getSize`) and persisting a ratio
+  column: accurate for every CDN, but needs a drizzle migration, async
+  measurement, and a height jump when the ratio lands after first render.
+  Deferred as a backlog item unless a site's URLs defeat all patterns.
+
+---
+
 ## D-007 — Instant done: render the card now, update in place when metadata lands
 
 **Status:** accepted  
