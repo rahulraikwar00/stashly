@@ -190,38 +190,38 @@ export function HomeScreen() {
             </Text>
           )}
         </View>
-
-        <AddDock />
-
-        {active?.mode === 'actions' && (
-          <PinActionMenu
-            pin={active.pin}
-            visible
-            onClose={() => setActive(null)}
-            onOpenLink={() => openLink(active.pin)}
-            onViewDetails={() => setActive((prev) => (prev ? { ...prev, mode: 'detail' } : prev))}
-            onToggleFavorite={() => toggleFavorite(active.pin)}
-            onToggleRead={() => toggleRead(active.pin)}
-            onToggleArchive={() => toggleArchive(active.pin)}
-            onCopyUrl={() => copyUrl(active.pin)}
-            onDelete={() => confirmDelete(active.pin)}
-          />
-        )}
-
-        {active?.mode === 'detail' && (
-          <PinDetailPopover
-            pin={active.pin}
-            visible
-            onClose={() => setActive(null)}
-            onOpenLink={() => openLink(active.pin)}
-            onToggleFavorite={() => toggleFavorite(active.pin)}
-            onToggleRead={() => toggleRead(active.pin)}
-            onToggleArchive={() => toggleArchive(active.pin)}
-            onCopyUrl={() => copyUrl(active.pin)}
-            onDelete={() => confirmDelete(active.pin)}
-          />
-        )}
       </ScrollView>
+
+      <AddDock />
+
+      {active?.mode === 'actions' && (
+        <PinActionMenu
+          pin={active.pin}
+          visible
+          onClose={() => setActive(null)}
+          onOpenLink={() => openLink(active.pin)}
+          onViewDetails={() => setActive((prev) => (prev ? { ...prev, mode: 'detail' } : prev))}
+          onToggleFavorite={() => toggleFavorite(active.pin)}
+          onToggleRead={() => toggleRead(active.pin)}
+          onToggleArchive={() => toggleArchive(active.pin)}
+          onCopyUrl={() => copyUrl(active.pin)}
+          onDelete={() => confirmDelete(active.pin)}
+        />
+      )}
+
+      {active?.mode === 'detail' && (
+        <PinDetailPopover
+          pin={active.pin}
+          visible
+          onClose={() => setActive(null)}
+          onOpenLink={() => openLink(active.pin)}
+          onToggleFavorite={() => toggleFavorite(active.pin)}
+          onToggleRead={() => toggleRead(active.pin)}
+          onToggleArchive={() => toggleArchive(active.pin)}
+          onCopyUrl={() => copyUrl(active.pin)}
+          onDelete={() => confirmDelete(active.pin)}
+        />
+      )}
     </View>
   );
 }
