@@ -6,7 +6,7 @@ export const DEFAULT_IMAGE_RATIO = 0.7;
 
 export function bookmarkToPin(b: Bookmark): Pin {
   return {
-    id: String(b.id),
+    id: b.id,
     title: b.title,
     description: b.description,
     source: b.siteName || b.domain || '',
@@ -14,6 +14,9 @@ export function bookmarkToPin(b: Bookmark): Pin {
     image: b.image,
     tags: b.tags ? JSON.parse(b.tags) : [],
     type: (b.type ?? 'link') as BookmarkType,
+    isFavorite: b.isFavorite,
+    isArchived: b.isArchived,
+    isRead: b.isRead,
   };
 }
 

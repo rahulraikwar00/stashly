@@ -10,13 +10,46 @@ import {
   View,
 } from 'react-native';
 import { MasonryGrid } from './MasonryGrid';
+import { FilterChips, type FilterOption } from './FilterChips';
+import { SearchBar } from './SearchBar';
 import { usePins } from '@/hooks/usePins';
+import type { BookmarkQuery, BookmarkType } from '@/types/bookmarks';
+import { useMemo, useState } from 'react';
 
 const NEAR_BOTTOM = 240;
 
+const TYPE_OPTIONS: FilterOption[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Article', value: 'article' },
+  { label: 'Image', value: 'image' },
+  { label: 'Link', value: 'link' },
+  { label: 'Video', value: 'video' },
+];
+
+const STATUS_OPTIONS: FilterOption[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Favorites', value: 'favorites' },
+  { label: 'Unread', value: 'unread' },
+];
+
 export function HomeScreen() {
   const theme = useTheme() as AppTheme;
-  const { pins, loading, refreshing, hasMore, error, loadMore, refresh } = usePins();
+  const [search, setSearch] = useState('');
+  const [type, setType] = useState('all');
+  const [status, setStatus] = useState('all');
+
+  const query = useMemo<BookmarkQuery>(
+    () => ({
+      search,
+      archived: false,
+      type: type === 'all' ? undefined : (type as BookmarkType),
+      favorite: status === 'favorites' ? true : undefined,
+      unread: status === 'unread' ? true : undefined,
+    }),
+    [search, type, status]
+  );
+
+  const { pins, loading, refreshing, hasMore, error, loadMore, refresh } = usePins(query);
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
@@ -49,6 +82,16 @@ export function HomeScreen() {
         <Text className="mt-0.5 text-[12px]" style={{ color: theme.colors.textMuted }}>
           Your saved inspiration
         </Text>
+
+        <View className="mt-3.5">
+          <SearchBar value={search} onChangeText={setSearch} />
+        </View>
+        <View className="mt-3">
+          <FilterChips options={TYPE_OPTIONS} selected={type} onSelect={setType} />
+        </View>
+        <View className="mt-2">
+          <FilterChips options={STATUS_OPTIONS} selected={status} onSelect={setStatus} />
+        </View>
       </View>
 
       {pins.length > 0 && <MasonryGrid pins={pins} />}

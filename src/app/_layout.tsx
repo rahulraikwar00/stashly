@@ -8,10 +8,8 @@ import { useColorScheme } from 'nativewind';
 import { ActivityIndicator } from 'react-native';
 
 import migrations from '@/drizzle/migrations';
-import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
-import { SQLiteProvider, openDatabaseSync } from 'expo-sqlite';
-import { DATABASE_NAME } from '@/db/database';
+import { db } from '@/db/client';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -21,25 +19,20 @@ export default function RootLayout() {
 
   return (
     <Suspense fallback={<ActivityIndicator size="large" />}>
-      <SQLiteProvider
-        databaseName={DATABASE_NAME}
-        options={{ enableChangeListener: true }}
-        useSuspense>
-        <Migrations>
-          <ThemeProvider value={theme}>
-            <Stack
-              screenOptions={{
-                headerStyle: { backgroundColor: theme.colors.card },
-                headerTintColor: theme.colors.text,
-                headerTitleStyle: { fontWeight: '600' },
-                headerShadowVisible: false,
-                contentStyle: { backgroundColor: theme.colors.background },
-              }}>
-              <Stack.Screen name="index" options={{ headerShown: false }} />
-            </Stack>
-          </ThemeProvider>
-        </Migrations>
-      </SQLiteProvider>
+      <Migrations>
+        <ThemeProvider value={theme}>
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: theme.colors.card },
+              headerTintColor: theme.colors.text,
+              headerTitleStyle: { fontWeight: '600' },
+              headerShadowVisible: false,
+              contentStyle: { backgroundColor: theme.colors.background },
+            }}>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          </Stack>
+        </ThemeProvider>
+      </Migrations>
     </Suspense>
   );
 }
@@ -49,8 +42,6 @@ export default function RootLayout() {
 // ─────────────────────────────────────────────
 
 function Migrations({ children }: { children: React.ReactNode }) {
-  const expoDb = openDatabaseSync(DATABASE_NAME);
-  const db = drizzle(expoDb);
   const { success, error } = useMigrations(db, migrations);
 
   useEffect(() => {

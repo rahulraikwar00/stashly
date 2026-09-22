@@ -11,6 +11,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
     "drizzle-orm": "^0.45.3",
     "expo": "^57.0.0",
     "expo-constants": "~57.0.19",

@@ -1,7 +1,15 @@
 export type BookmarkType = 'article' | 'image' | 'link' | 'video';
 
+export type BookmarkQuery = {
+  search?: string;
+  type?: BookmarkType;
+  favorite?: boolean;
+  unread?: boolean;
+  archived?: boolean;
+};
+
 export type Pin = {
-  id: string;
+  id: number;
   title: string;
   description: string;
   source: string;
@@ -9,4 +17,7 @@ export type Pin = {
   image: string;
   tags: string[];
   type: BookmarkType;
+  isFavorite: boolean;
+  isArchived: boolean;
+  isRead: boolean;
 };
