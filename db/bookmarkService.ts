@@ -173,10 +173,11 @@ export interface EnrichmentResult {
  * Runs as a fire-and-forget async job (native fetch I/O, never blocks the UI).
  *
  * Two tiers:
- *  1. Direct device-side fetch (private, fast) for normal sites.
- *  2. When the direct result is empty, or the site is a "walled" platform that
- *     hides metadata from browser-like clients (Instagram/TikTok/...), falls
- *     back to the server-side extractor (backend/) which uses a crawler UA.
+ *  1. Walled platforms (Instagram/TikTok/...) ALWAYS use the server-side
+ *     extractor (backend/), which fetches with a crawler UA and gets the full
+ *     caption/likes/thumbnail — a device-side fetch can't.
+ *  2. Everywhere else: direct device-side fetch (private, fast); when the
+ *     direct result is empty or fails, falls back to the extractor.
  *
  * Returns an EnrichmentResult (metadata patch + source + duration) on success,
  * or null when no metadata could be found.
@@ -184,8 +185,20 @@ export interface EnrichmentResult {
 export async function enrichBookmark(id: number, url: string): Promise<EnrichmentResult | null> {
   const startedAt = Date.now();
   const tag = `bookmark#${id}`;
-  let direct: Partial<NewBookmark> | undefined;
 
+  let domain = '';
+  try {
+    domain = new URL(url).hostname;
+  } catch {
+    // keep ''
+  }
+
+  if (isWalledDomain(domain)) {
+    pushEvent('enrich', `${tag} tier=extractor host=${domain} reason=walled`);
+    return extractorTier(id, url, domain, startedAt);
+  }
+
+  let direct: Partial<NewBookmark> | undefined;
   try {
     direct = await fetchPageMetadata(url);
   } catch (err) {
@@ -198,36 +211,28 @@ export async function enrichBookmark(id: number, url: string): Promise<Enrichmen
     return { patch: direct, source: 'direct', durationMs: Date.now() - startedAt };
   }
 
-  let domain = '';
-  try {
-    domain = new URL(url).hostname;
-  } catch {
-    // keep ''
+  pushEvent('enrich', `${tag} tier=extractor host=${domain || '?'} reason=empty-direct`);
+  return extractorTier(id, url, domain, startedAt);
+}
+
+async function extractorTier(
+  id: number,
+  url: string,
+  domain: string,
+  startedAt: number
+): Promise<EnrichmentResult | null> {
+  const tag = `bookmark#${id}`;
+  const extracted = await fetchExtractedMetadata(url);
+  if (extracted) {
+    await updateBookmark(id, extracted.patch);
+    const durationMs = Date.now() - startedAt;
+    const source =
+      extracted.source === 'self-hosted' ? 'extractor-self-hosted' : 'extractor-interim';
+    pushEvent('enrich', `${tag} ${source} loaded ${durationMs}ms`);
+    return { patch: extracted.patch, source, durationMs };
   }
 
-  const needsExtractor = isWalledDomain(domain) || !direct || isEmptyMetadata(direct);
-  pushEvent(
-    'enrich',
-    `${tag} tier=extractor host=${domain || '?'} reason=${isWalledDomain(domain) ? 'walled' : 'empty-direct'}`
-  );
-  if (needsExtractor) {
-    const extracted = await fetchExtractedMetadata(url);
-    if (extracted) {
-      await updateBookmark(id, extracted.patch);
-      const durationMs = Date.now() - startedAt;
-      pushEvent(
-        'enrich',
-        `${tag} ${extracted.source === 'self-hosted' ? 'extractor-self-hosted' : 'extractor-interim'} loaded ${durationMs}ms`
-      );
-      return {
-        patch: extracted.patch,
-        source: extracted.source === 'self-hosted' ? 'extractor-self-hosted' : 'extractor-interim',
-        durationMs,
-      };
-    }
-  }
-
-  pushEvent('enrich', `${tag} failed ${Date.now() - startedAt}ms`);
+  pushEvent('enrich', `${tag} failed ${domain || '?'} ${Date.now() - startedAt}ms`);
   return null;
 }
 
