@@ -45,8 +45,10 @@ export function getImageAspectRatio(image: string): number | null {
 /**
  * Rendered height of a pin's image for a given column width, preserving the
  * image's real aspect ratio. Falls back to a nominal ratio when unknown.
+ * Returns 0 for pins without an image so no blank slot is reserved.
  */
 export function imageHeightFor(pin: Pin, columnWidth: number): number {
+  if (!pin.image) return 0;
   const ratio = getImageAspectRatio(pin.image) ?? DEFAULT_IMAGE_RATIO;
   return Math.round(columnWidth * ratio);
 }
@@ -63,7 +65,7 @@ export function splitColumns(items: Pin[]) {
   let rightH = 0;
 
   for (const pin of items) {
-    const h = getImageAspectRatio(pin.image) ?? DEFAULT_IMAGE_RATIO;
+    const h = pin.image ? (getImageAspectRatio(pin.image) ?? DEFAULT_IMAGE_RATIO) : 0;
     if (leftH <= rightH) {
       left.push(pin);
       leftH += h;
@@ -80,7 +82,7 @@ export function splitColumns(items: Pin[]) {
  * Used to balance the two masonry columns before a real layout pass.
  */
 export function estimateCardHeight(pin: Pin): number {
-  const imageH = getImageAspectRatio(pin.image) ?? DEFAULT_IMAGE_RATIO;
+  const imageH = pin.image ? (getImageAspectRatio(pin.image) ?? DEFAULT_IMAGE_RATIO) : 0;
   const padding = 16; // py-2 (8 top + 8 bottom)
   const titleLines = pin.title.length > 28 ? 2 : 1;
   const titleH = titleLines * 16; // leading-4

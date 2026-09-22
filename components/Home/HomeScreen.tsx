@@ -1,20 +1,23 @@
 import type { AppTheme } from '@/constants/theme';
-import { useTheme } from 'expo-router';
+import { useFocusEffect, useRouter, useTheme } from 'expo-router';
 import {
   ActivityIndicator,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { MasonryGrid } from './MasonryGrid';
 import { FilterChips, type FilterOption } from './FilterChips';
 import { SearchBar } from './SearchBar';
 import { usePins } from '@/hooks/usePins';
+import { consumeSavingComplete } from '@/hooks/pendingRefresh';
 import type { BookmarkQuery, BookmarkType } from '@/types/bookmarks';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 const NEAR_BOTTOM = 240;
 
@@ -34,6 +37,7 @@ const STATUS_OPTIONS: FilterOption[] = [
 
 export function HomeScreen() {
   const theme = useTheme() as AppTheme;
+  const router = useRouter();
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
   const [status, setStatus] = useState('all');
@@ -50,6 +54,13 @@ export function HomeScreen() {
   );
 
   const { pins, loading, refreshing, hasMore, error, loadMore, refresh } = usePins(query);
+
+  // Refetch page 0 when returning from the add-bookmark screen after a save.
+  useFocusEffect(
+    useCallback(() => {
+      if (consumeSavingComplete()) void refresh();
+    }, [refresh])
+  );
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
@@ -76,12 +87,25 @@ export function HomeScreen() {
         />
       }>
       <View className="px-4 pb-4 pt-6">
-        <Text className="text-[28px] font-bold tracking-tight" style={{ color: theme.colors.text }}>
-          Bookmarks
-        </Text>
-        <Text className="mt-0.5 text-[12px]" style={{ color: theme.colors.textMuted }}>
-          Your saved inspiration
-        </Text>
+        <View className="flex-row items-center justify-between">
+          <View>
+            <Text
+              className="text-[28px] font-bold tracking-tight"
+              style={{ color: theme.colors.text }}>
+              Bookmarks
+            </Text>
+            <Text className="mt-0.5 text-[12px]" style={{ color: theme.colors.textMuted }}>
+              Your saved inspiration
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => router.push('/add-bookmark')}
+            hitSlop={8}
+            className="h-10 w-10 items-center justify-center rounded-full active:opacity-70"
+            style={{ backgroundColor: theme.colors.primary }}>
+            <Ionicons name="add" size={22} color="#FFFFFF" />
+          </Pressable>
+        </View>
 
         <View className="mt-3.5">
           <SearchBar value={search} onChangeText={setSearch} />

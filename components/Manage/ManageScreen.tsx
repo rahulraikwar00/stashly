@@ -224,13 +224,15 @@ function ManageRow({
     <View
       className="flex-row items-center rounded-2xl p-2.5"
       style={{ backgroundColor: c.surface }}>
-      <Image
-        source={{ uri: pin.image }}
-        className="h-[52px] w-[52px] rounded-xl"
-        resizeMode="cover"
-      />
+      {pin.image ? (
+        <Image
+          source={{ uri: pin.image }}
+          className="h-[52px] w-[52px] rounded-xl"
+          resizeMode="cover"
+        />
+      ) : null}
 
-      <View className="ml-3 flex-1">
+      <View className={pin.image ? 'ml-3 flex-1' : 'flex-1'}>
         <Text
           className="text-[13px] font-semibold leading-[17px]"
           style={{ color: c.text }}

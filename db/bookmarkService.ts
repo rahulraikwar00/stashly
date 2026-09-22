@@ -3,6 +3,7 @@ import { and, desc, eq, like, or, sql } from 'drizzle-orm';
 import type { BookmarkQuery } from '@/types/bookmarks';
 import { db } from './client';
 import { bookmarks, type Bookmark, type NewBookmark } from './schema';
+import { fetchPageMetadata } from '@/utils/metadata';
 
 /**
  * Default page size for paginated queries.
@@ -142,6 +143,39 @@ export async function loadBookmarksPage(
 export async function loadBookmarkById(id: number): Promise<Bookmark | undefined> {
   const [result] = await db.select().from(bookmarks).where(eq(bookmarks.id, id)).limit(1);
   return result;
+}
+
+/**
+ * Loads a bookmark by its deduplication hash (same URL = same hash).
+ * Used to detect "already saved" before insert.
+ */
+export async function getBookmarkByUrlHash(urlHash: string): Promise<Bookmark | undefined> {
+  const [result] = await db.select().from(bookmarks).where(eq(bookmarks.urlHash, urlHash)).limit(1);
+  return result;
+}
+
+/**
+ * Enriches an already-saved bookmark with fetched page metadata.
+ * Runs as a fire-and-forget async job (native fetch I/O, never blocks the UI).
+ * Returns the metadata patch on success, or null after all attempts fail.
+ */
+export async function enrichBookmark(
+  id: number,
+  url: string,
+  maxAttempts = 2
+): Promise<Partial<NewBookmark> | null> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const metadata = await fetchPageMetadata(url);
+      await updateBookmark(id, metadata);
+      return metadata;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  console.warn(`Metadata enrichment failed for bookmark #${id}:`, lastError);
+  return null;
 }
 
 /**
