@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import type { AppTheme } from '@/constants/theme';
-import { useFocusEffect, useTheme } from 'expo-router';
+import { useTheme } from 'expo-router';
 import {
   ActivityIndicator,
   Alert,
@@ -16,11 +16,11 @@ import { MasonryGrid } from './MasonryGrid';
 import { FilterChips, type FilterOption } from './FilterChips';
 import { SearchBar } from './SearchBar';
 import { AddDock } from './AddDock';
+import { AddBookmarkPopover } from '@/components/Pin/AddBookmarkPopover';
 import { PinActionMenu } from '@/components/Pin/PinActionMenu';
 import { PinDetailPopover } from '@/components/Pin/PinDetailPopover';
 import { usePins } from '@/hooks/usePins';
 import { usePinMutations } from '@/hooks/usePinMutations';
-import { consumeSavingComplete } from '@/hooks/pendingRefresh';
 import type { BookmarkQuery, BookmarkType, Pin } from '@/types/bookmarks';
 import { useCallback, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -51,6 +51,7 @@ export function HomeScreen() {
   const [type, setType] = useState('all');
   const [status, setStatus] = useState('all');
   const [active, setActive] = useState<Overlay>(null);
+  const [showAdd, setShowAdd] = useState(false);
 
   const query = useMemo<BookmarkQuery>(
     () => ({
@@ -81,12 +82,10 @@ export function HomeScreen() {
     handleMutated
   );
 
-  // Refetch page 0 when returning from the add-bookmark screen after a save.
-  useFocusEffect(
-    useCallback(() => {
-      if (consumeSavingComplete()) void refresh();
-    }, [refresh])
-  );
+  // Refetch page 0 after a new bookmark is saved from the AddBookmarkPopover.
+  const handleSaved = useCallback(() => {
+    void refresh();
+  }, [refresh]);
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
@@ -192,7 +191,13 @@ export function HomeScreen() {
         </View>
       </ScrollView>
 
-      <AddDock />
+      <AddDock onPress={() => setShowAdd(true)} />
+
+      <AddBookmarkPopover
+        visible={showAdd}
+        onClose={() => setShowAdd(false)}
+        onSaved={handleSaved}
+      />
 
       {active?.mode === 'actions' && (
         <PinActionMenu

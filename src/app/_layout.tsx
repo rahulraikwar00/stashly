@@ -30,7 +30,6 @@ export default function RootLayout() {
               contentStyle: { backgroundColor: theme.colors.background },
             }}>
             <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="add-bookmark" options={{ presentation: 'modal' }} />
           </Stack>
         </ThemeProvider>
       </Migrations>

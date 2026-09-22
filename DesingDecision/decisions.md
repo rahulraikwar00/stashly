@@ -5,7 +5,42 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
-## D-009 — Card-first management: no Manage tab, popup actions + detail on cards
+## D-010 — Add bookmark as a centered popup (no full-screen route)
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+D-009 moved every bookmark interaction onto the cards as centered popups and
+introduced the bottom-center AddDock. The add flow still lived in a
+full-screen modal route (`src/app/add-bookmark.tsx`). The flow only needs to
+capture one URL and show a saved preview — nowhere near a full screen of
+detail — so a second full-screen page is unnecessary chrome.
+
+### Decision
+- New `components/Pin/AddBookmarkPopover.tsx` ported from `add-bookmark.tsx`,
+  rendered inside the existing `PopupCard` (dimmed backdrop, tap-outside/✕
+  close). States: idle (URL input) → saving (spinner) → saved.
+- **Keep the instant-done behavior (D-007):** after Save the popup stays open,
+  the full preview card appears, and enrichment updates it **in place** as the
+  metadata lands; the user taps **Done** to close.
+- The Library refreshes via a new `onSaved` callback (fired after insert and
+  after enrichment completes, mirroring the old `markSavingComplete` double
+  fire) instead of the `useFocusEffect`/`pendingRefresh` flag — there is no
+  navigation focus change anymore. `hooks/pendingRefresh.ts` deleted.
+- `AddDock` takes an `onPress` prop (no more `router.push`); `HomeScreen` owns
+  `showAdd` and renders the popover.
+- Share-to-save is unchanged in feel: `+native-intent.ts` now redirects the
+  system share to `/` (the Library); the popover auto-opens (`visible ||
+  hasPendingShare`) with the shared URL pre-filled and clears the payload on
+  save or dismiss. `src/app/add-bookmark.tsx` deleted.
+
+### Why not
+- Keeping the full-screen route — the content (one input + one preview) fits a
+  centered card and stays consistent with every other action (D-009); a route
+  would add a transition and a redundant header.
+
+---
 
 **Status:** accepted  
 **Date:** 2026-09-23

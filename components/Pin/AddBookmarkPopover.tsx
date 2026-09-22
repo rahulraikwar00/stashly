@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { PinTypePill } from '@/components/Home/PinTypePill';
+import { PopupCard } from '@/components/Pin/PopupCard';
 import type { AppTheme } from '@/constants/theme';
 import type { Bookmark, NewBookmark } from '@/db/schema';
 import {
@@ -8,24 +9,22 @@ import {
   saveBookmark,
   type EnrichmentResult,
 } from '@/db/bookmarkService';
-import { markSavingComplete } from '@/hooks/pendingRefresh';
 import { useIncomingShare, type ResolvedSharePayload, type SharePayload } from 'expo-sharing';
-import { Stack, useRouter, useTheme } from 'expo-router';
+import { useTheme } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { bookmarkToPin } from '@/utils/pin';
-import { urlHashFor } from '@/utils/hash';
 import { faviconForDomain } from '@/utils/metadata';
+import { urlHashFor } from '@/utils/hash';
 
 type Status = 'idle' | 'saving' | 'done';
 
@@ -57,8 +56,6 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-// Timestamp kept in a module-scope helper so it doesn't trip the React purity
-// lint rule (which flags impure calls lexically inside the component body).
 function nowMs(): number {
   return Date.now();
 }
@@ -72,10 +69,17 @@ function extractSharedUrl(shared: SharePayload[], resolved: ResolvedSharePayload
   return textPayload ? textPayload.value.trim() : null;
 }
 
-export default function AddBookmarkScreen() {
+export function AddBookmarkPopover({
+  visible,
+  onClose,
+  onSaved,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
-  const router = useRouter();
 
   const { sharedPayloads, resolvedSharedPayloads, clearSharedPayloads } = useIncomingShare();
 
@@ -99,6 +103,17 @@ export default function AddBookmarkScreen() {
       setUrl(sharedUrl);
     }
   }, [sharedUrl, status]);
+
+  const dismiss = () => {
+    if (status === 'saving') return;
+    setStatus('idle');
+    setBookmark(null);
+    setEnrichStatus(null);
+    setUrl('');
+    urlRef.current = '';
+    clearSharedPayloads();
+    onClose?.();
+  };
 
   const canSave = isHttpUrl(url) && (status === 'idle' || status === 'done');
 
@@ -169,11 +184,11 @@ export default function AddBookmarkScreen() {
       return;
     }
 
-    markSavingComplete();
     clearSharedPayloads();
     setBookmark(saved);
     setStatus('done');
     setEnrichStatus({ tone: 'loading', text: 'Fetching the title and image…' });
+    onSaved?.();
 
     void enrichInBackground(saved.id, trimmed);
   };
@@ -184,7 +199,7 @@ export default function AddBookmarkScreen() {
       if (result) {
         setBookmark((prev) => (prev && prev.id === id ? { ...prev, ...result.patch } : prev));
         setEnrichStatus(enrichFeedbackFor(result));
-        markSavingComplete();
+        onSaved?.();
       } else {
         setEnrichStatus({
           tone: 'error',
@@ -210,43 +225,34 @@ export default function AddBookmarkScreen() {
   const enrichToneColor = enrichStatus ? ENRICH_DOT_COLORS[enrichStatus.tone] : c.textMuted;
   const enrichText = enrichStatus?.text ?? 'Fetching the title and image…';
 
-  return (
-    <KeyboardAvoidingView
-      className="flex-1"
-      style={{ backgroundColor: c.background }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Stack.Screen
-        options={{
-          presentation: 'modal',
-          title: 'Save bookmark',
-          headerStyle: { backgroundColor: c.card },
-          headerTintColor: c.text,
-          headerTitleStyle: { fontWeight: '600' },
-          headerLeft: () =>
-            status === 'idle' ? (
-              <Pressable onPress={() => router.back()} hitSlop={8}>
-                <Ionicons name="close" size={22} color={c.text} />
-              </Pressable>
-            ) : null,
-        }}
-      />
+  const show = visible || status !== 'idle' || !!sharedUrl;
 
-      <View className="flex-1 px-4 pb-6 pt-4">
+  return (
+    <PopupCard visible={show} onClose={dismiss} maxWidth={340}>
+      <View className="relative">
+        <View className="flex-row items-center justify-between px-4 pt-3.5">
+          <Text className="text-[14px] font-bold" style={{ color: c.text }}>
+            {status === 'done' ? 'Saved to your library' : 'Add a link'}
+          </Text>
+          {status !== 'saving' && (
+            <Pressable onPress={dismiss} hitSlop={8} className="p-0.5 active:opacity-60">
+              <Ionicons name="close" size={18} color={c.textMuted} />
+            </Pressable>
+          )}
+        </View>
+
         {status === 'idle' && (
-          <>
-            <Text className="text-[13px] font-semibold" style={{ color: c.text }}>
-              {sharedUrl ? 'Paste the link you want to save' : 'Add a link to your library'}
-            </Text>
-            <Text className="mt-1 text-[11px]" style={{ color: c.textMuted }}>
+          <View className="px-4 pb-4 pt-1">
+            <Text className="mt-0.5 text-[11px]" style={{ color: c.textMuted }}>
               Paste any URL — we fetch the title, image and details in the background.
             </Text>
 
             <View
-              className="mt-3 flex-row items-center rounded-2xl px-3.5 py-2"
+              className="mt-3 flex-row items-center rounded-2xl px-3 py-2"
               style={{ backgroundColor: c.surfaceAlt }}>
-              <Ionicons name="link" size={16} color={c.textMuted} />
+              <Ionicons name="link" size={15} color={c.textMuted} />
               <TextInput
-                className="ml-2 flex-1 py-1 text-[14px]"
+                className="ml-2 flex-1 py-1 text-[13px]"
                 style={{ color: c.text }}
                 placeholder="https://example.com/article"
                 placeholderTextColor={c.textMuted}
@@ -256,10 +262,11 @@ export default function AddBookmarkScreen() {
                 autoCorrect={false}
                 keyboardType="url"
                 returnKeyType="done"
+                onSubmitEditing={canSave ? onSave : undefined}
               />
               {url.length > 0 && (
                 <Pressable onPress={() => setUrl('')} hitSlop={8}>
-                  <Ionicons name="close-circle" size={16} color={c.textFaint} />
+                  <Ionicons name="close-circle" size={15} color={c.textFaint} />
                 </Pressable>
               )}
             </View>
@@ -267,118 +274,109 @@ export default function AddBookmarkScreen() {
             <Pressable
               onPress={onSave}
               disabled={!canSave}
-              className="mt-4 items-center rounded-2xl py-3"
+              className="mt-3 items-center rounded-2xl py-2.5"
               style={{ backgroundColor: canSave ? c.primary : c.surfaceAlt }}>
               <Text
-                className="text-[14px] font-bold"
+                className="text-[13px] font-bold"
                 style={{ color: canSave ? '#FFFFFF' : c.textFaint }}>
                 Save bookmark
               </Text>
             </Pressable>
-          </>
+          </View>
         )}
 
         {status === 'saving' && (
-          <View className="flex-1 items-center justify-center">
+          <View className="items-center justify-center px-4 pb-6 pt-2">
             <ActivityIndicator color={c.primary} />
-            <Text className="mt-4 text-[14px] font-semibold" style={{ color: c.text }}>
+            <Text className="mt-3 text-[13px] font-semibold" style={{ color: c.text }}>
               Saving…
             </Text>
-            <Text className="mt-1 text-center text-[11px]" style={{ color: c.textMuted }}>
+            <Text className="mt-0.5 text-[11px]" style={{ color: c.textMuted }}>
               Adding the link to your library.
             </Text>
           </View>
         )}
 
         {status === 'done' && pin && bookmark && (
-          <View className="flex-1">
-            <View className="flex-row items-center">
-              <Ionicons name="checkmark-circle" size={28} color={c.primary} />
-              <View className="ml-2.5 flex-1">
-                <Text className="text-[15px] font-bold" style={{ color: c.text }}>
-                  Saved to your library
-                </Text>
-                <View className="mt-0.5 flex-row items-center">
-                  <View
-                    className="mr-1.5 h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: enrichToneColor }}
-                  />
-                  <Text className="text-[11px]" style={{ color: c.textMuted }} numberOfLines={1}>
-                    {enrichText}
-                  </Text>
-                </View>
-              </View>
+          <>
+            <View className="flex-row items-center px-4 pt-0.5">
+              <View
+                className="mr-1.5 h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: enrichToneColor }}
+              />
+              <Text className="flex-1 text-[11px]" style={{ color: c.textMuted }} numberOfLines={1}>
+                {enrichText}
+              </Text>
             </View>
 
-            <View
-              className="mb-2 mt-5 w-full overflow-hidden rounded-2xl"
-              style={{ backgroundColor: c.surface }}>
-              {pin.image ? (
-                <View className="relative">
-                  <Image
-                    source={{ uri: pin.image }}
-                    style={{ width: '100%', height: 180 }}
-                    resizeMode="cover"
-                  />
-                  {pin.type !== 'article' && <PinTypePill type={pin.type} theme={theme} />}
-                </View>
-              ) : (
-                <View className="flex-row items-center px-3 py-4">
-                  <Image source={{ uri: pin.favicon }} className="h-4 w-4 rounded-[3px]" />
-                  <Text
-                    className="ml-2 flex-1 text-[10px]"
-                    style={{ color: c.textFaint }}
-                    numberOfLines={1}>
-                    {pin.source}
-                  </Text>
-                  <Text
-                    className="text-[9px] font-bold tracking-widest"
-                    style={{ color: c.textFaint }}>
-                    {pin.type.toUpperCase()}
-                  </Text>
-                </View>
-              )}
+            <ScrollView
+              className="px-4"
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              style={{ maxHeight: 320 }}>
+              <View
+                className="mt-2 w-full overflow-hidden rounded-2xl"
+                style={{ backgroundColor: c.surface }}>
+                {pin.image ? (
+                  <View className="relative">
+                    <Image
+                      source={{ uri: pin.image }}
+                      style={{ width: '100%', height: 150 }}
+                      resizeMode="cover"
+                    />
+                    {pin.type !== 'article' && <PinTypePill type={pin.type} theme={theme} />}
+                  </View>
+                ) : (
+                  <View className="flex-row items-center px-3 py-3">
+                    <Image source={{ uri: pin.favicon }} className="h-4 w-4 rounded-[3px]" />
+                    <Text
+                      className="ml-2 flex-1 text-[10px]"
+                      style={{ color: c.textFaint }}
+                      numberOfLines={1}>
+                      {pin.source}
+                    </Text>
+                  </View>
+                )}
 
-              <View className="px-3 py-2.5">
-                <Text
-                  className="text-[13px] font-semibold leading-[17px]"
-                  style={{ color: c.text }}
-                  numberOfLines={2}>
-                  {pin.title}
-                </Text>
-                {pin.description ? (
+                <View className="px-3 py-2.5">
                   <Text
-                    className="mt-1 text-[11px] leading-[15px]"
-                    style={{ color: c.textMuted }}
+                    className="text-[13px] font-semibold leading-[17px]"
+                    style={{ color: c.text }}
                     numberOfLines={2}>
-                    {pin.description}
+                    {pin.title}
                   </Text>
-                ) : null}
-                <View className="mt-1.5 flex-row items-center">
-                  <Image source={{ uri: pin.favicon }} className="h-3 w-3 rounded-[3px]" />
-                  <Text
-                    className="ml-1.5 text-[10px]"
-                    style={{ color: c.textFaint }}
-                    numberOfLines={1}>
-                    {url}
-                  </Text>
+                  {pin.description ? (
+                    <Text
+                      className="mt-1 text-[11px] leading-[15px]"
+                      style={{ color: c.textMuted }}
+                      numberOfLines={2}>
+                      {pin.description}
+                    </Text>
+                  ) : null}
+                  <View className="mt-1.5 flex-row items-center">
+                    <Image source={{ uri: pin.favicon }} className="h-3 w-3 rounded-[3px]" />
+                    <Text
+                      className="ml-1.5 text-[10px]"
+                      style={{ color: c.textFaint }}
+                      numberOfLines={1}>
+                      {bookmark.url}
+                    </Text>
+                  </View>
                 </View>
               </View>
-            </View>
-
-            <View className="flex-1" />
+            </ScrollView>
 
             <Pressable
-              onPress={() => router.back()}
-              className="items-center rounded-2xl py-3"
+              onPress={dismiss}
+              className="mx-4 mb-4 mt-2.5 items-center rounded-2xl py-2.5"
               style={{ backgroundColor: c.primary }}>
-              <Text className="text-[14px] font-bold" style={{ color: '#FFFFFF' }}>
+              <Text className="text-[13px] font-bold" style={{ color: '#FFFFFF' }}>
                 Done
               </Text>
             </Pressable>
-          </View>
+          </>
         )}
       </View>
-    </KeyboardAvoidingView>
+    </PopupCard>
   );
 }
