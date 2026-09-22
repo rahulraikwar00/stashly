@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import { Ionicons } from '@expo/vector-icons';
 import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
 import {
@@ -7,15 +8,16 @@ import {
   Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View,
 } from 'react-native';
 import { MasonryGrid } from './MasonryGrid';
-import { FilterChips, type FilterOption } from './FilterChips';
 import { SearchBar } from './SearchBar';
 import { AddDock } from './AddDock';
+import { FilterPopover, type FilterGroup } from './FilterPopover';
 import { AddBookmarkPopover } from '@/components/Pin/AddBookmarkPopover';
 import { PinActionMenu } from '@/components/Pin/PinActionMenu';
 import { PinDetailPopover } from '@/components/Pin/PinDetailPopover';
@@ -27,21 +29,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const NEAR_BOTTOM = 240;
 
-const TYPE_OPTIONS: FilterOption[] = [
-  { label: 'All', value: 'all' },
-  { label: 'Article', value: 'article' },
-  { label: 'Image', value: 'image' },
-  { label: 'Link', value: 'link' },
-  { label: 'Video', value: 'video' },
-];
-
-const STATUS_OPTIONS: FilterOption[] = [
-  { label: 'All', value: 'all' },
-  { label: 'Favorites', value: 'favorites' },
-  { label: 'Unread', value: 'unread' },
-  { label: 'Archived', value: 'archived' },
-];
-
 type Overlay = { pin: Pin; mode: 'actions' | 'detail' } | null;
 
 export function HomeScreen() {
@@ -52,6 +39,14 @@ export function HomeScreen() {
   const [status, setStatus] = useState('all');
   const [active, setActive] = useState<Overlay>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+
+  const filtersActive = type !== 'all' || status !== 'all';
+
+  const onSelectGroup = useCallback((group: FilterGroup, value: string) => {
+    if (group === 'type') return setType(value);
+    setStatus(value);
+  }, []);
 
   const query = useMemo<BookmarkQuery>(
     () => ({
@@ -137,26 +132,40 @@ export function HomeScreen() {
             progressBackgroundColor={theme.colors.card}
           />
         }>
-        <View className="px-4 pb-4 pt-6">
-          <View>
+        <View className="mt-4 px-4 pb-3 pt-4">
+          <View className="flex-row items-center justify-between">
             <Text
-              className="text-[28px] font-bold tracking-tight"
+              className="text-[24px] font-bold tracking-tight"
               style={{ color: theme.colors.text }}>
               Bookmarks
             </Text>
-            <Text className="mt-0.5 text-[12px]" style={{ color: theme.colors.textMuted }}>
-              Your saved inspiration
-            </Text>
+            <Pressable hitSlop={8} onPress={() => {}} className="active:opacity-70">
+              <Ionicons name="person-circle-outline" size={28} color={theme.colors.textMuted} />
+            </Pressable>
           </View>
 
-          <View className="mt-3.5">
-            <SearchBar value={search} onChangeText={setSearch} />
-          </View>
-          <View className="mt-3">
-            <FilterChips options={TYPE_OPTIONS} selected={type} onSelect={setType} />
-          </View>
-          <View className="mt-2">
-            <FilterChips options={STATUS_OPTIONS} selected={status} onSelect={setStatus} />
+          <View className="mt-2.5">
+            <SearchBar
+              value={search}
+              onChangeText={setSearch}
+              trailing={
+                <View className="ml-1.5 flex-row items-center">
+                  {filtersActive && (
+                    <View
+                      className="mr-1 h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: theme.colors.primary }}
+                    />
+                  )}
+                  <Pressable onPress={() => setShowFilters(true)} hitSlop={8}>
+                    <Ionicons
+                      name="filter"
+                      size={16}
+                      color={filtersActive ? theme.colors.primary : theme.colors.textMuted}
+                    />
+                  </Pressable>
+                </View>
+              }
+            />
           </View>
         </View>
 
@@ -197,6 +206,14 @@ export function HomeScreen() {
         visible={showAdd}
         onClose={() => setShowAdd(false)}
         onSaved={handleSaved}
+      />
+
+      <FilterPopover
+        visible={showFilters}
+        onClose={() => setShowFilters(false)}
+        type={type}
+        status={status}
+        onSelectGroup={onSelectGroup}
       />
 
       {active?.mode === 'actions' && (

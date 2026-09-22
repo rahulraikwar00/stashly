@@ -1,16 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
+import type { ReactNode } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 
 export function SearchBar({
   value,
   onChangeText,
   placeholder,
+  trailing,
 }: {
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
+  trailing?: ReactNode;
 }) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
@@ -36,6 +39,7 @@ export function SearchBar({
           <Ionicons name="close-circle" size={16} color={c.textFaint} />
         </Pressable>
       )}
+      {trailing}
     </View>
   );
 }

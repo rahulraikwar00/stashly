@@ -5,7 +5,37 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
-## D-010 — Add bookmark as a centered popup (no full-screen route)
+## D-011 — Compact header: filters behind an icon, profile slot reserved
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+The Library header stacked a 28px title + subtitle, a full-width search bar,
+and two horizontal filter-chip rows — roughly ~218px before any pin. Two chip
+rows (type + status, two "All"s) were especially noisy and duplicated a control
+that needs few taps.
+
+### Decision
+- **One-row header:** "Bookmarks" (24px) + search bar. Subtitle and both
+  `FilterChips` rows removed (`components/Home/FilterChips.tsx` deleted).
+- **Search bar** stays full-width and gains an optional `trailing` slot
+  (`components/Home/SearchBar.tsx`) hosting a `filter` icon. When any filter is
+  active the icon tints primary and a small dot appears.
+- **`components/Home/FilterPopover.tsx`** (new, `PopupCard` shell) holds every
+  option as wrapping chips in Type + Status sections (status chips carry
+  leading icons), applies **live** on tap, and offers a context-sensitive
+  "Clear". Keeping the search bar full-width reserves the heading's right side
+  for a placeholder **profile avatar** (person icon, no-op for now) that will
+  hold user identity later.
+- Old header height ~218px → ~90px.
+
+### Why not
+- Merging both chip rows into one shared-stack horizontal scroller — two "All"
+  semantics and cross-group selection made the chip API convoluted; a popup is
+  a single tap away and extensible (favorites, saved, recent…).
+
+---
 
 **Status:** accepted  
 **Date:** 2026-09-23
