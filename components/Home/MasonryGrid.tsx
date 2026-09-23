@@ -202,6 +202,7 @@ export const MasonryGrid = memo(function MasonryGrid({
             tintColor={theme.colors.textMuted}
             colors={[theme.colors.textMuted]}
             progressBackgroundColor={theme.colors.card}
+            progressViewOffset={headerHeight}
           />
         }
         showsVerticalScrollIndicator={false}
