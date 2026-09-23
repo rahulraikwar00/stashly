@@ -21,8 +21,11 @@ import { FilterPopover, type FilterGroup } from './FilterPopover';
 import { AddBookmarkPopover } from '@/components/Pin/AddBookmarkPopover';
 import { PinActionMenu } from '@/components/Pin/PinActionMenu';
 import { PinDetailPopover } from '@/components/Pin/PinDetailPopover';
+import { ProfilePopover } from '@/components/Profile/ProfilePopover';
+import { UserAvatar } from '@/components/Profile/UserAvatar';
 import { usePins } from '@/hooks/usePins';
 import { usePinMutations } from '@/hooks/usePinMutations';
+import { useSettings } from '@/hooks/useSettings';
 import type { BookmarkQuery, BookmarkType, Pin } from '@/types/bookmarks';
 import { useCallback, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,12 +37,14 @@ type Overlay = { pin: Pin; mode: 'actions' | 'detail' } | null;
 export function HomeScreen() {
   const theme = useTheme() as AppTheme;
   const insets = useSafeAreaInsets();
+  const { settings } = useSettings();
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
-  const [status, setStatus] = useState('all');
+  const [status, setStatus] = useState(settings.defaultStatus || 'all');
   const [active, setActive] = useState<Overlay>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   const filtersActive = type !== 'all' || status !== 'all';
 
@@ -139,8 +144,15 @@ export function HomeScreen() {
               style={{ color: theme.colors.text }}>
               Bookmarks
             </Text>
-            <Pressable hitSlop={8} onPress={() => {}} className="active:opacity-70">
-              <Ionicons name="person-circle-outline" size={28} color={theme.colors.textMuted} />
+            <Pressable
+              hitSlop={8}
+              onPress={() => setShowProfile(true)}
+              className="active:opacity-70">
+              <UserAvatar
+                uri={settings?.avatarUri ?? ''}
+                name={settings?.displayName || settings?.username || ''}
+                size={28}
+              />
             </Pressable>
           </View>
 
@@ -215,6 +227,8 @@ export function HomeScreen() {
         status={status}
         onSelectGroup={onSelectGroup}
       />
+
+      <ProfilePopover visible={showProfile} onClose={() => setShowProfile(false)} />
 
       {active?.mode === 'actions' && (
         <PinActionMenu

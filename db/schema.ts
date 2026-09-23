@@ -46,6 +46,38 @@ export const bookmarks = sqliteTable('bookmarks', {
   viewCount: integer('view_count').notNull().default(0),
 });
 
+// ─────────────────────────────────────────────
+// SETTINGS — single-row app configuration + profile
+// ─────────────────────────────────────────────
+export const settings = sqliteTable('settings', {
+  id: integer('id').primaryKey(), // always 1 (get-or-create in the service)
+
+  // ─────────────────────────────────────────────
+  // PROFILE
+  // ─────────────────────────────────────────────
+  displayName: text('display_name').notNull().default(''),
+  username: text('username').notNull().default(''),
+  email: text('email').notNull().default(''),
+  avatarUri: text('avatar_uri').notNull().default(''), // '' = initials circle
+
+  // ─────────────────────────────────────────────
+  // PREFERENCES
+  // ─────────────────────────────────────────────
+  theme: text('theme').notNull().default('system'), // "system" | "light" | "dark"
+  defaultStatus: text('default_status').notNull().default('all'), // "all" | "favorites" | "unread" | "archived"
+
+  // ─────────────────────────────────────────────
+  // SERVER — reserved for a self-hosted backend (not connected yet)
+  // ─────────────────────────────────────────────
+  serverUrl: text('server_url').notNull().default(''),
+  apiKey: text('api_key').notNull().default(''),
+
+  updatedAt: integer('updated_at').notNull().default(0),
+});
+
+export type Settings = typeof settings.$inferSelect;
+export type NewSettings = typeof settings.$inferInsert;
+
 // Type inference for your app
 export type Bookmark = typeof bookmarks.$inferSelect; // For reading
 export type NewBookmark = typeof bookmarks.$inferInsert; // For inserting

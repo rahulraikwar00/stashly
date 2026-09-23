@@ -1,0 +1,72 @@
+// db/settingsService.ts
+import { eq } from 'drizzle-orm';
+import { db } from './client';
+import { settings, type Settings } from './schema';
+
+export type SettingsPatch = Partial<
+  Pick<
+    Settings,
+    | 'displayName'
+    | 'username'
+    | 'email'
+    | 'avatarUri'
+    | 'theme'
+    | 'defaultStatus'
+    | 'serverUrl'
+    | 'apiKey'
+  >
+>;
+
+const DEFAULTS = {
+  displayName: '',
+  username: '',
+  email: '',
+  avatarUri: '',
+  theme: 'system',
+  defaultStatus: 'all',
+  serverUrl: '',
+  apiKey: '',
+} as const;
+
+export async function defaultSettings(): Promise<Settings> {
+  return { id: 1, ...DEFAULTS, updatedAt: Date.now() };
+}
+
+/**
+ * Loads the single settings row (id = 1). Creates it with defaults on first
+ * use so callers never have to handle a missing row.
+ */
+export async function loadSettings(): Promise<Settings> {
+  const [row] = await db.select().from(settings).where(eq(settings.id, 1)).limit(1);
+  if (row) return row;
+
+  const defaults = await defaultSettings();
+  const [created] = await db.insert(settings).values(defaults).returning();
+  return created;
+}
+
+/**
+ * Partial update of the settings row. Always bumps updatedAt.
+ * Returns the updated row.
+ */
+export async function updateSettings(patch: SettingsPatch): Promise<Settings> {
+  await loadSettings(); // ensure the row exists before updating
+  const [row] = await db
+    .update(settings)
+    .set({ ...patch, updatedAt: Date.now() })
+    .where(eq(settings.id, 1))
+    .returning();
+  return row!;
+}
+
+/**
+ * Resets profile + preferences to their defaults (preserves server fields).
+ */
+export async function resetProfile(): Promise<Settings> {
+  return updateSettings({
+    displayName: '',
+    username: '',
+    email: '',
+    avatarUri: '',
+  });
+}

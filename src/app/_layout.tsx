@@ -10,30 +10,42 @@ import { ActivityIndicator } from 'react-native';
 import migrations from '@/drizzle/migrations';
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
 import { db } from '@/db/client';
+import { SettingsProvider, useSettings } from '@/hooks/useSettings';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const { colorScheme } = useColorScheme(); // ← destructure
-  const theme = colorScheme === 'dark' ? MyDarkTheme : MyLightTheme;
-
   return (
     <Suspense fallback={<ActivityIndicator size="large" />}>
       <Migrations>
-        <ThemeProvider value={theme}>
-          <Stack
-            screenOptions={{
-              headerStyle: { backgroundColor: theme.colors.card },
-              headerTintColor: theme.colors.text,
-              headerTitleStyle: { fontWeight: '600' },
-              headerShadowVisible: false,
-              contentStyle: { backgroundColor: theme.colors.background },
-            }}>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-          </Stack>
-        </ThemeProvider>
+        <SettingsProvider>
+          <ThemedRoot />
+        </SettingsProvider>
       </Migrations>
     </Suspense>
+  );
+}
+
+function ThemedRoot() {
+  const { colorScheme } = useColorScheme(); // nativewind (OS + in-app override)
+  const { settings } = useSettings();
+
+  const scheme = settings.theme !== 'system' ? settings.theme : colorScheme;
+  const theme = scheme === 'dark' ? MyDarkTheme : MyLightTheme;
+
+  return (
+    <ThemeProvider value={theme}>
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: theme.colors.card },
+          headerTintColor: theme.colors.text,
+          headerTitleStyle: { fontWeight: '600' },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: theme.colors.background },
+        }}>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+      </Stack>
+    </ThemeProvider>
   );
 }
 

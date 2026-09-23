@@ -5,18 +5,91 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
+## D-012 — Profile & settings (local-first), server verification documented as a spec
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+
+The compact header (D-011) reserved a placeholder profile avatar with no
+behavior. The app is local-first (single-user SQLite) and the backend
+(`backend/`) is only a metadata extractor — there is no user identity or auth
+anywhere. We want basic user details reachable from the avatar, plus storage
+for a future self-hosted backend (server URL + API key) so nothing is hardcoded
+in `env`, and to plan the future Chrome extension against the same endpoint.
+
+### Decision
+
+- **Storage: local-only.** New single-row `settings` table (`id = 1`,
+  get-or-create in `db/settingsService.ts`) via drizzle migration `0001`
+  (registered in `drizzle/migrations.js`). Columns: `displayName`, `username`,
+  `email`, `avatarUri`, `theme` (`system|light|dark`), `defaultStatus`
+  (`all|favorites|unread|archived`), `serverUrl`, `apiKey`, `updatedAt`.
+- **Entry point:** the header avatar opens `components/Profile/ProfilePopover.tsx`
+  (same `PopupCard` shell as every other action — D-009/011). Sections:
+  identity (avatar + name/@username/email), preferences (theme + default view
+  chips), and a collapsible **Self-hosted server** group (URL + masked API key)
+  with a "not connected yet" note.
+- **Avatar:** picked via `expo-image-picker`, copied into the app document
+  directory (`expo-file-system` new `File`/`Paths` API) so it survives cache
+  purges; empty → initials circle (`UserAvatar`).
+- **Theme override:** `hooks/useSettings.tsx` `SettingsProvider` loads settings
+  at the root (children gated until loaded) and calls nativewind
+  `setColorScheme('light'|'dark'|'system')`; `ThemedRoot` picks the expo-router
+  theme from the stored preference, falling back to the OS scheme for `system`.
+- **Default view:** `HomeScreen` seeds its `status` filter from
+  `settings.defaultStatus`.
+- **Server fields are reserved, not wired:** nothing in `utils/metadata.ts`
+  reads them yet; the extractor keeps the existing env/hostUri resolution.
+  When a backend arrives, `settings.serverUrl`/`apiKey` supersede it.
+- **Server verification = documentation only** (no endpoint built): the full
+  client + future-server rule table lives in `utils/profile.ts` comments and
+  the field validators are enforced client-side at save time.
+
+### Verification rules (client now → future server later)
+
+| Field                 | Client rule                                                  | Future server rule                                                                       |
+| --------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| displayName           | required, ≤50, no control chars                              | same + strip HTML                                                                        |
+| username              | optional, `^[a-z0-9_]{3,20}$`, lowercase                     | same + uniqueness, reserved list, rate limit                                             |
+| email                 | optional, `^[^\s@]+@[^\s@]+\.[^\s@]+$`, ≤254, lowercase      | same + uniqueness, verify (OTP/magic), TLS only                                          |
+| avatarUri             | `file://`, `content://`, or `https://` only                  | upload ≤2 MB, store a ref, never arbitrary URL                                           |
+| serverUrl             | if set, absolute `http(s)://`, trailing slash stripped       | TLS only, origin allowlist for hooks                                                     |
+| apiKey                | optional, 8–128 chars `[A-Za-z0-9._-]`, never logged/exposed | constant-time compare, `Authorization: Bearer`, hashed storage, rotation, per-key limits |
+| theme / defaultStatus | enum whitelist                                               | enum whitelist, ignore unknown                                                           |
+
+### Why not
+
+- Server-backed identity/user table — no auth exists and nothing needs it today;
+  local-first matches the architecture. The server rules are already specced so
+  the future backend (and Chrome extension) can adopt them unchanged.
+- Hardcoding `serverUrl`/`apiKey` in `env` — settings keep config editable in
+  the app and reusable by the extension.
+
+### Notes
+
+- New native deps: `expo-image-picker`, `expo-file-system` → requires a
+  dev/native rebuild to run.
+- Android may keep a poisoned DB handle per process; the `settings` migration
+  is additive, but a clean rebuild is advised when testing on device.
+
+---
+
 ## D-011 — Compact header: filters behind an icon, profile slot reserved
 
 **Status:** accepted  
 **Date:** 2026-09-23
 
 ### Context
+
 The Library header stacked a 28px title + subtitle, a full-width search bar,
 and two horizontal filter-chip rows — roughly ~218px before any pin. Two chip
 rows (type + status, two "All"s) were especially noisy and duplicated a control
 that needs few taps.
 
 ### Decision
+
 - **One-row header:** "Bookmarks" (24px) + search bar. Subtitle and both
   `FilterChips` rows removed (`components/Home/FilterChips.tsx` deleted).
 - **Search bar** stays full-width and gains an optional `trailing` slot
@@ -31,6 +104,7 @@ that needs few taps.
 - Old header height ~218px → ~90px.
 
 ### Why not
+
 - Merging both chip rows into one shared-stack horizontal scroller — two "All"
   semantics and cross-group selection made the chip API convoluted; a popup is
   a single tap away and extensible (favorites, saved, recent…).
@@ -41,6 +115,7 @@ that needs few taps.
 **Date:** 2026-09-23
 
 ### Context
+
 D-009 moved every bookmark interaction onto the cards as centered popups and
 introduced the bottom-center AddDock. The add flow still lived in a
 full-screen modal route (`src/app/add-bookmark.tsx`). The flow only needs to
@@ -48,6 +123,7 @@ capture one URL and show a saved preview — nowhere near a full screen of
 detail — so a second full-screen page is unnecessary chrome.
 
 ### Decision
+
 - New `components/Pin/AddBookmarkPopover.tsx` ported from `add-bookmark.tsx`,
   rendered inside the existing `PopupCard` (dimmed backdrop, tap-outside/✕
   close). States: idle (URL input) → saving (spinner) → saved.
@@ -62,10 +138,11 @@ detail — so a second full-screen page is unnecessary chrome.
   `showAdd` and renders the popover.
 - Share-to-save is unchanged in feel: `+native-intent.ts` now redirects the
   system share to `/` (the Library); the popover auto-opens (`visible ||
-  hasPendingShare`) with the shared URL pre-filled and clears the payload on
+hasPendingShare`) with the shared URL pre-filled and clears the payload on
   save or dismiss. `src/app/add-bookmark.tsx` deleted.
 
 ### Why not
+
 - Keeping the full-screen route — the content (one input + one preview) fits a
   centered card and stays consistent with every other action (D-009); a route
   would add a transition and a redundant header.
@@ -76,6 +153,7 @@ detail — so a second full-screen page is unnecessary chrome.
 **Date:** 2026-09-23
 
 ### Context
+
 Management actions lived in a separate Manage tab (favorite/read/archive/delete
 rows, All/Favorites/Unread/Archived scopes). The Library grid was not
 interactive — tapping a card did nothing. Users expect to act on a bookmark
@@ -83,6 +161,7 @@ from the card itself: long-press (or a ⋯ button) for quick actions, tap for
 details.
 
 ### Decision
+
 - **Manage tab deleted.** Cards carry every action — optimistic toggles
   (favorite, read, archive), delete (with Alert confirm), copy URL, and open link.
   Archived items remain reachable via a new **Archived** status chip in the
@@ -114,6 +193,7 @@ details.
   marks the pin read on open.
 
 ### Why not
+
 - Keeping the Manage tab — redundant once cards expose the same actions and
   the Archived filter is a chip; a second tab would duplicate scope/state.
 - A bottom-sheet library (`@gorhom/bottom-sheet`) — centered popover cards
@@ -126,6 +206,7 @@ details.
 **Date:** 2026-09-23
 
 ### Context
+
 Fetched thumbnails (e.g. Instagram `scontent.cdninstagram.com/...?stp=..._s640x640..`)
 have no parseable `/WIDTH/HEIGHT` path segments, so `getImageAspectRatio`
 returned `null` and every card fell back to `DEFAULT_IMAGE_RATIO` — a uniform
@@ -133,15 +214,16 @@ returned `null` and every card fell back to `DEFAULT_IMAGE_RATIO` — a uniform
 so tablets rendered two oversized columns instead of a denser layout.
 
 ### Decision
+
 - **Phase A — aspect-ratio detection ladder** in `getImageAspectRatio`
   (`utils/pin.ts`):
   1. WordPress-style filename suffix `…-1024x683.jpg`;
   2. explicit query params `w=` / `h=` (Cloudinary, Imgix);
   3. `s{width}x{height}` hints in params/query (Instagram `s640x640` → ratio 1.0);
   4. plain integer path segments (picsum `/400/600`) — kept as a later fallback.
-  Unknown URL shapes still fall back to `0.7`. Image heights are always
-  `columnWidth × ratio` (`imageHeightFor` unchanged) — the column width is the
-  only controlled dimension, preserving the image's original aspect ratio.
+     Unknown URL shapes still fall back to `0.7`. Image heights are always
+     `columnWidth × ratio` (`imageHeightFor` unchanged) — the column width is the
+     only controlled dimension, preserving the image's original aspect ratio.
 - **Phase B — responsive N-column masonry:**
   - `splitColumns` (hardcoded `{left, right}`) replaced by `splitIntoColumns`
     (balanced by accumulated ratio height) in `utils/pin.ts`;
@@ -152,6 +234,7 @@ so tablets rendered two oversized columns instead of a denser layout.
   intentional fixed crops.
 
 ### Why not
+
 - Measuring true pixels on-device (`Image.getSize`) and persisting a ratio
   column: accurate for every CDN, but needs a drizzle migration, async
   measurement, and a height jump when the ratio lands after first render.
@@ -165,18 +248,20 @@ so tablets rendered two oversized columns instead of a denser layout.
 **Date:** 2026-09-23
 
 ### Context
+
 D-006 added a server-side extraction fallback that can take several seconds
 (walled platforms). D-005 showed a loading state until enrichment resolved, which
 leaves the user staring at a spinner on exactly the slow cases.
 
 ### Decision
+
 - The add-bookmark screen sets `status='done'` **immediately** after the row is
   inserted and shows a pin card built from the URL alone (hostname title, Google
   S2 favicon, no image — per D-004).
 - Enrichment runs un-awaited; when it resolves, the card is updated **in place**
   via `setBookmark({ ...prev, ...metadata })`.
-- The "Saved" subtitle reflects the phase: *"Saved! Fetching the title and
-  image…"* → *"Title, image and details loaded automatically."* (or a
+- The "Saved" subtitle reflects the phase: _"Saved! Fetching the title and
+  image…"_ → _"Title, image and details loaded automatically."_ (or a
   saved-with-domain-only note on failure).
 - On completion we re-flag `pendingRefresh` so the Library refetches on its next
   focus if the user has already left the screen.
@@ -189,6 +274,7 @@ leaves the user staring at a spinner on exactly the slow cases.
 **Date:** 2026-09-23
 
 ### Context
+
 Instagram reels (and similar platforms: TikTok, Pinterest, X/Twitter) serve a
 consent/JS shell with **no og tags** to browser-like clients, so the device-side
 direct fetch (`utils/metadata`) returns an empty result and the card stays
@@ -198,6 +284,7 @@ UA (`Googlebot` / `facebookexternalhit`) makes Instagram serve the real
 in static HTML — no headless browser needed.
 
 ### Decision
+
 - New `backend/` folder: a small FastAPI service (`httpx` + regex og/twitter
   parse) that fetches server-side with a **crawler UA for walled hosts** and a
   normal browser UA otherwise.
@@ -221,6 +308,7 @@ in static HTML — no headless browser needed.
   self-hosted server is a one-line env change.
 
 ### Why not
+
 - Playwright/headless-browser tier — unnecessary; the crawler UA already gets
   full static og tags from the walled sites we care about. Revisit only if a
   JS-only platform appears.
@@ -230,6 +318,7 @@ in static HTML — no headless browser needed.
   concerns; the self-hosted `backend/` is the durable choice.
 
 ### Notes
+
 - `og:image` values may contain HTML entities (`&amp;`); both the server and the
   app decode entities on image URLs before storage.
 - Running the phone against a local server: Android emulator reaches the host via
@@ -243,6 +332,7 @@ in static HTML — no headless browser needed.
 **Date:** 2026-09-23
 
 ### Context
+
 Users want to save a link to the library by sharing it from another app
 (iOS Share sheet / Android `ACTION_SEND`). Bookmarks are URL-centric, so only
 `text/*` shares are accepted. To make the pin useful we want page metadata
@@ -250,6 +340,7 @@ Users want to save a link to the library by sharing it from another app
 fetching it should never block the UI.
 
 ### Decision
+
 - **Instant save first.** On save we insert the row immediately from the URL
   alone: `urlHash` (djb2 hex, satisfies the unique `url_hash` column), parsed
   `domain`/`path`, hostname as placeholder title, Google-S2 favicon,
@@ -267,6 +358,7 @@ fetching it should never block the UI.
 - **Dedup.** Check `getBookmarkByUrlHash` before insert and alert "Already saved".
 
 ### Why not
+
 - `expo-share-intent` (community) — the first-party `expo-sharing` module
   (SDK 54+) covers both platforms with `useIncomingShare()` + the
   `expo-router` `+native-intent.ts` hook.
@@ -274,6 +366,7 @@ fetching it should never block the UI.
   and delays alerts for no real win.
 
 ### Notes
+
 - Requires a dev/native build (`npx expo prebuild --clean` + `expo run:android`);
   share receiving does not work in Expo Go.
 - Uses Google's S2 favicon service (same source as the seed data).
@@ -286,11 +379,13 @@ fetching it should never block the UI.
 **Date:** 2026-09-23
 
 ### Context
+
 Shared links often lack an `og:image`. Growing the app's surface with a
 placeholder-image pipeline (Skia text→image generation, placeholder services)
 adds weight for little value.
 
 ### Decision
+
 - `PinCard` and the Manage-screen row render the image block **only when
   `pin.image` is non-empty**; otherwise the card shows favicon, title, source
   and type — the link and its details are enough.
@@ -299,6 +394,7 @@ adds weight for little value.
   left in the grid.
 
 ### Why not
+
 - `@shopify/react-native-skia` placeholder generation — heavy native dependency
   for an image that communicates nothing beyond what the favicon/title already
   show.
@@ -311,6 +407,7 @@ adds weight for little value.
 **Date:** 2026-09-23
 
 ### Context
+
 Intermittent Android crash `NativeDatabase.prepareSync` rejected →
 `java.lang.NullPointerException` in `loadBookmarksPage`. Root cause: the same
 database file was opened multiple times (`db/client.ts` module-scope,
@@ -321,6 +418,7 @@ wrapper releases the shared native handle, poisoning every other wrapper with a
 bare NPE on `prepareSync`.
 
 ### Decision
+
 - `db/client.ts` is the single owner of the connection
   (`SQLite.openDatabaseSync` + drizzle).
 - `db/index.ts` re-exports `db` from `./client` (no second connection).
@@ -329,5 +427,6 @@ bare NPE on `prepareSync`.
   until migrations succeed.
 
 ### Notes
+
 - Because Android can keep a poisoned DB handle per process, a clean rebuild
   (`adb uninstall` / fresh run) is required after deploying this fix.
