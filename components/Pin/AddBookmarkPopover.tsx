@@ -81,7 +81,8 @@ export function AddBookmarkPopover({
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
 
-  const { sharedPayloads, resolvedSharedPayloads, clearSharedPayloads } = useIncomingShare();
+  const { sharedPayloads, resolvedSharedPayloads, clearSharedPayloads, refreshSharePayloads } =
+    useIncomingShare();
 
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState<Status>('idle');
@@ -93,6 +94,10 @@ export function AddBookmarkPopover({
     urlRef.current = url;
   }, [url]);
 
+  // Latched once the incoming URL has been consumed into the form, so manual
+  // pastes keep the saved-preview screen while share-initiated saves auto-close.
+  const fromShareRef = useRef(false);
+
   const sharedUrl = useMemo(
     () => extractSharedUrl(sharedPayloads, resolvedSharedPayloads),
     [sharedPayloads, resolvedSharedPayloads]
@@ -101,17 +106,31 @@ export function AddBookmarkPopover({
   useEffect(() => {
     if (sharedUrl && !urlRef.current && status === 'idle') {
       setUrl(sharedUrl);
+      fromShareRef.current = true;
     }
   }, [sharedUrl, status]);
 
-  const dismiss = () => {
-    if (status === 'saving') return;
+  // Clear the native intent AND re-sync the hook's React state, so the popup's
+  // `sharedUrl` becomes null immediately (otherwise it stays stale and keeps
+  // the popup open until the next app foreground).
+  const consumeShared = () => {
+    clearSharedPayloads();
+    void refreshSharePayloads();
+  };
+
+  const resetForm = () => {
+    consumeShared();
+    fromShareRef.current = false;
     setStatus('idle');
     setBookmark(null);
     setEnrichStatus(null);
     setUrl('');
     urlRef.current = '';
-    clearSharedPayloads();
+  };
+
+  const dismiss = () => {
+    if (status === 'saving') return;
+    resetForm();
     onClose?.();
   };
 
@@ -126,8 +145,10 @@ export function AddBookmarkPopover({
     try {
       const existing = await getBookmarkByUrlHash(hash);
       if (existing) {
-        clearSharedPayloads();
-        setStatus('idle');
+        if (fromShareRef.current) {
+          resetForm();
+          onClose?.();
+        }
         Alert.alert('Already saved', `This link is already in your library.`);
         return;
       }
@@ -184,7 +205,16 @@ export function AddBookmarkPopover({
       return;
     }
 
-    clearSharedPayloads();
+    if (fromShareRef.current) {
+      // Share-initiated save: return to the Library immediately. Enrichment
+      // still runs in the background and fires onSaved when metadata lands.
+      resetForm();
+      onSaved?.();
+      void enrichInBackground(saved.id, trimmed);
+      onClose?.();
+      return;
+    }
+
     setBookmark(saved);
     setStatus('done');
     setEnrichStatus({ tone: 'loading', text: 'Fetching the title and image…' });

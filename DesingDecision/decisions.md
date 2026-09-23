@@ -195,6 +195,15 @@ detail — so a second full-screen page is unnecessary chrome.
 hasPendingShare`) with the shared URL pre-filled and clears the payload on
   save or dismiss. `src/app/add-bookmark.tsx` deleted.
 
+### Notes
+
+- **Amended (2026-09-23, bug fix):** share-initiated saves now **auto-close**
+  back to the Library immediately (the saved-preview screen is kept only for
+  manual pastes). `useIncomingShare()`'s React state only re-syncs on
+  `AppState → active`, so clearing just the native intent via
+  `clearSharedPayloads()` left `sharedUrl` stale and re-opened the popup; the
+  fix also calls `refreshSharePayloads()` after clearing (`consumeShared`).
+
 ### Why not
 
 - Keeping the full-screen route — the content (one input + one preview) fits a
