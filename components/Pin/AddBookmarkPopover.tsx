@@ -22,7 +22,7 @@ import {
   View,
 } from 'react-native';
 import { useToast } from '@/components/Feedback/ToastProvider';
-import { bookmarkToPin } from '@/utils/pin';
+import { bookmarkToPin, normalizeTags } from '@/utils/pin';
 import { faviconForDomain } from '@/utils/metadata';
 import { urlHashFor } from '@/utils/hash';
 
@@ -86,6 +86,7 @@ export function AddBookmarkPopover({
     useIncomingShare();
 
   const [url, setUrl] = useState('');
+  const [tagsInput, setTagsInput] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [bookmark, setBookmark] = useState<Bookmark | null>(null);
   const [enrichStatus, setEnrichStatus] = useState<EnrichStatus>(null);
@@ -99,21 +100,43 @@ export function AddBookmarkPopover({
   // pastes keep the saved-preview screen while share-initiated saves auto-close.
   const fromShareRef = useRef(false);
 
+  // `pendingShareUrl` drives the auto-open. Closing/saving is authoritative and
+  // never re-latches the same URL, so a stale `sharedPayloads` (the native
+  // clear + hook re-sync can lag or fail on Android) can't re-open the popup
+  // the moment the user dismisses it.
+  const [pendingShareUrl, setPendingShareUrl] = useState<string | null>(null);
+  const lastConsumedRef = useRef<string | null>(null);
+
   const sharedUrl = useMemo(
     () => extractSharedUrl(sharedPayloads, resolvedSharedPayloads),
     [sharedPayloads, resolvedSharedPayloads]
   );
 
   useEffect(() => {
-    if (sharedUrl && !urlRef.current && status === 'idle') {
+    if (
+      sharedUrl &&
+      sharedUrl !== lastConsumedRef.current &&
+      !urlRef.current &&
+      status === 'idle'
+    ) {
+      lastConsumedRef.current = sharedUrl;
+      setPendingShareUrl(sharedUrl);
       setUrl(sharedUrl);
       fromShareRef.current = true;
     }
   }, [sharedUrl, status]);
 
-  // Clear the native intent AND re-sync the hook's React state, so the popup's
-  // `sharedUrl` becomes null immediately (otherwise it stays stale and keeps
-  // the popup open until the next app foreground).
+  // A real clear (payloads drain to empty) unblocks a future share of the same
+  // URL while the popup stays under `pendingShareUrl` until explicitly closed.
+  useEffect(() => {
+    if (sharedPayloads.length === 0) {
+      lastConsumedRef.current = null;
+    }
+  }, [sharedPayloads]);
+
+  // Clear the native intent AND re-sync the hook's React state. This is best-
+  // effort — closing no longer depends on it — but when the clear does land it
+  // drains `sharedPayloads` so the next share is treated as fresh.
   const consumeShared = () => {
     clearSharedPayloads();
     void refreshSharePayloads();
@@ -122,10 +145,12 @@ export function AddBookmarkPopover({
   const resetForm = () => {
     consumeShared();
     fromShareRef.current = false;
+    setPendingShareUrl(null);
     setStatus('idle');
     setBookmark(null);
     setEnrichStatus(null);
     setUrl('');
+    setTagsInput('');
     urlRef.current = '';
   };
 
@@ -184,7 +209,7 @@ export function AddBookmarkPopover({
       publishedAt: null,
       language: '',
       type: 'link',
-      tags: '[]',
+      tags: JSON.stringify(normalizeTags(tagsInput)),
       notes: '',
       isFavorite: false,
       isArchived: false,
@@ -256,7 +281,7 @@ export function AddBookmarkPopover({
   const enrichToneColor = enrichStatus ? ENRICH_DOT_COLORS[enrichStatus.tone] : c.textMuted;
   const enrichText = enrichStatus?.text ?? 'Fetching the title and image…';
 
-  const show = visible || status !== 'idle' || !!sharedUrl;
+  const show = visible || status !== 'idle' || pendingShareUrl != null;
 
   return (
     <PopupCard visible={show} onClose={dismiss} maxWidth={340}>
@@ -300,6 +325,25 @@ export function AddBookmarkPopover({
                   <Ionicons name="close-circle" size={15} color={c.textFaint} />
                 </Pressable>
               )}
+            </View>
+
+            <Text className="mt-3 text-[11px] font-semibold" style={{ color: c.textMuted }}>
+              Tags (optional)
+            </Text>
+            <View
+              className="mt-1 flex-row items-center rounded-2xl px-3 py-2"
+              style={{ backgroundColor: c.surfaceAlt }}>
+              <Ionicons name="pricetags-outline" size={15} color={c.textMuted} />
+              <TextInput
+                className="ml-2 flex-1 py-1 text-[13px]"
+                style={{ color: c.text }}
+                placeholder="cooking, travel, inspiration"
+                placeholderTextColor={c.textMuted}
+                value={tagsInput}
+                onChangeText={setTagsInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
             </View>
 
             <Pressable

@@ -1,5 +1,5 @@
 // db/bookmarkService.ts
-import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, like, or, sql } from 'drizzle-orm';
 import type { BookmarkQuery } from '@/types/bookmarks';
 import { db } from './client';
 import { bookmarks, type Bookmark, type NewBookmark } from './schema';
@@ -31,10 +31,12 @@ function buildWhere(query: BookmarkQuery) {
       or(
         like(bookmarks.title, term),
         like(bookmarks.customTitle, term),
+        like(bookmarks.customDescription, term),
         like(bookmarks.description, term),
         like(bookmarks.siteName, term),
         like(bookmarks.url, term),
-        like(bookmarks.tags, term)
+        like(bookmarks.tags, term),
+        like(bookmarks.notes, term)
       )
     );
   }
@@ -44,7 +46,30 @@ function buildWhere(query: BookmarkQuery) {
   if (query.unread !== undefined) conditions.push(eq(bookmarks.isRead, !query.unread));
   if (query.archived !== undefined) conditions.push(eq(bookmarks.isArchived, query.archived));
 
+  // Tags are stored as a JSON string array (`["tag1","tag2"]`). Matching the
+  // JSON-encoded value (with quotes) makes the filter exact while staying a
+  // plain LIKE — `%"ai"%` never matches `"aiart"`.
+  if (query.tag) conditions.push(like(bookmarks.tags, `%${JSON.stringify(query.tag)}%`));
+
   return conditions;
+}
+
+/**
+ * SQL ORDER BY for a sort key. `unread`/`favorites` are "inbox-first" sorts
+ * that rank their flag first, then fall back to newest. `newest` (the default)
+ * and `oldest` are pure date orders.
+ */
+function buildOrderBy(query: BookmarkQuery) {
+  switch (query.sort ?? 'newest') {
+    case 'newest':
+      return [desc(bookmarks.createdAt)];
+    case 'oldest':
+      return [asc(bookmarks.createdAt)];
+    case 'unread':
+      return [asc(bookmarks.isRead), desc(bookmarks.createdAt)];
+    case 'favorites':
+      return [desc(bookmarks.isFavorite), desc(bookmarks.createdAt)];
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -118,18 +143,19 @@ export async function deleteBookmark(id: number): Promise<void> {
 // ─────────────────────────────────────────────
 
 /**
- * Loads ALL bookmarks matching the query, newest first.
- * Use only for small datasets. For large datasets, use loadBookmarksPage.
+ * Loads ALL bookmarks matching the query, sorted per the query's sort key
+ * (default newest). Use only for small datasets. For large datasets, use
+ * loadBookmarksPage.
  */
 export async function loadBookmarks(query: BookmarkQuery = {}): Promise<Bookmark[]> {
   const where = buildWhere(query);
   const base = db.select().from(bookmarks);
   const filtered = where.length ? base.where(and(...where)) : base;
-  return filtered.orderBy(desc(bookmarks.createdAt));
+  return filtered.orderBy(...buildOrderBy(query));
 }
 
 /**
- * Loads a page of bookmarks matching the query, newest first.
+ * Loads a page of bookmarks matching the query.
  * Use with offset 0, 20, 40, ... for infinite scroll.
  */
 export async function loadBookmarksPage(
@@ -140,7 +166,10 @@ export async function loadBookmarksPage(
   const where = buildWhere(query);
   const base = db.select().from(bookmarks);
   const filtered = where.length ? base.where(and(...where)) : base;
-  return filtered.orderBy(desc(bookmarks.createdAt)).limit(limit).offset(offset);
+  return filtered
+    .orderBy(...buildOrderBy(query))
+    .limit(limit)
+    .offset(offset);
 }
 
 /**

@@ -47,7 +47,10 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "bundleIdentifier": "com.myexpoapp.bookmarks",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.com.myexpoapp.bookmarks"]
+      }
     },
     "android": {
       "package": "com.myexpoapp.bookmarks",
@@ -56,6 +59,10 @@
         "backgroundColor": "#ffffff"
       },
       "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET",
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -83,6 +90,12 @@
         "projectId": "81757c79-0858-4d34-a382-bb4863e7b662"
       }
     },
-    "owner": "rahulraikwar00"
+    "owner": "rahulraikwar00",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/81757c79-0858-4d34-a382-bb4863e7b662"
+    }
   }
 }

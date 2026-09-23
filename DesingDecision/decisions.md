@@ -5,6 +5,101 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
+## D-015 — Library features: edit, tags, backup, sort, share-out
+
+**Status:** accepted  
+**Date:** 2026-09-24
+
+### Context
+
+The library had write-only bookmarks: tags were always saved as `'[]'`, the
+`customTitle`/`customDescription`/`notes` columns had UI-free display-only
+paths, order was hard-fixed to newest, and the single SQLite row meant the
+whole library could be lost by reinstalling. Audited needed features (edit,
+tags, backup, sort) plus one nice-to-have (share a bookmark out) and shipped
+them together — deliberately planning them as one batch because tags/notes
+touch the same columns and the same search + filter pipeline.
+
+### Decision
+
+- **Edit** lives in a new `EditBookmarkPopover` (opens from a "Edit" row in the
+  action menu and a pencil icon in the details popover). It writes the
+  user-override columns only (`customTitle`, `customDescription`, `notes`,
+  `tags`) — never the auto-extracted ones — so a later re-enrichment can't
+  clobber user edits and vice versa.
+- **Display precedence:** `customTitle || title`, `customDescription ||
+description`. `Pin` gained `autoTitle`/`autoDescription` so the optimistic
+  edit can resolve the effective value even when the user _clears_ an override
+  (falls back to the preserved auto value instead of the stale previous
+  override; `bookmarkToPin` is the single source of that precedence).
+- **Commit-effectiveness heuristic:** in the edit form the effective value is
+  shown; saving writes `customTitle = value.trim() === pin.autoTitle ? '' :
+value.trim()` (same for description). Typing exactly the auto value is
+  therefore a no-op — cheap and predictable.
+- **Tags are now real:** normalized on save (`parseTags`: lowercase, strip
+  leading `#` and `"`, comma-separated, de-duped) in `AddBookmarkPopover` and
+  the edit form. Search LIKE gained `customDescription` + `notes` (notes were
+  invisible to search). Tag filter is a JSON-aware substring match
+  (`like(tags, '%"ai"%')`) so `ai` never matches `aiart`; the stored form is a
+  JSON array string, and importer/editor always write lowercase so the filter
+  stays exact.
+- **Tap-to-filter:** tags in the details popover are tappable chips → filter
+  the grid by that tag, closing the popover. Active tag shows as a removable
+  chip in `FilterPopover` ("Tag" section). `pinMatchesFilters` honors
+  `query.tag` so optimistic toggles stay correct under the filter.
+- **Sort** is a `FilterGroup` in `FilterPopover` (`SortKey`: Newest/Oldest/
+  Unread first/Favorites first). `unread`/`favorites` are "inbox-first": flag
+  ranked first, then newest as tie-breaker. Sort rides the same memoized query.
+  Deliberately left out of the "Clear" button (it reorders, it doesn't scope);
+  the filter dot includes it so a non-default sort is visible in the header.
+- **Backup** is local-first JSON, versioned (`BACKUP_VERSION = 1`):
+  `{ app, version, exportedAt, count, bookmarks }`.
+  - **Export:** `db/backup.exportBookmarksJson` → all rows → `expo-file-system`
+    `File.write` to cache → native share sheet via `expo-sharing.shareAsync`
+    (user saves to Files/Drive/…). Reuses the already-installed `expo-sharing`.
+  - **Import (paste-JSON, per user choice):** a multiline field in a
+    `ProfilePopover` "Backup" section, gated by `ConfirmProvider`, then
+    `importBookmarksJson`. Picker UX (`expo-document-picker`) deferred to the
+    next native build so this ships JS-only on the current Android build.
+  - **Idempotent import:** the dedup `urlHash` is recomputed from `url`
+    (never trusted from the file); rows already present are skipped, files
+    without a valid `http(s)` url are dropped, and unknown fields are
+    defaulted. Imported rows show immediately via `onImported → refresh`.
+  - Settings/profile are intentionally NOT exported (device-local identity +
+    secrets stay on-device).
+- **Share-out** uses RN core `Share.share({ title, message: url })` — no new
+  dependency. Rows in the action menu ("Share link") and an icon in the details
+  popover. (Incoming-share machinery stays for save-in, not file share-out.)
+
+### Why not
+
+- **Edit inline in `PinDetailPopover`** — the detail view is read-only chrome;
+  a separate editor mirrors `AddBookmarkPopover`'s shape and keeps each
+  popover's state trivial.
+- **`expo-document-picker` import now** — needs a native rebuild; paste-JSON is
+  testable on the current Android build immediately. Picker is a pure
+  swap-in later (same `importBookmarksJson`).
+- **Backup via COPY/print or per-folder exports** — versioned whole-library
+  JSON is the smallest correct restore unit for a single-SQLite app.
+- **Sort in "Clear" / separate filter row** — scope vs order are different
+  axes; Clear resets scope (type/status/tag), sort is a view preference.
+
+- **Bonus: same D-014 collapsible header, now a layout row (2026-09-24).** The
+  D-014 overlay implementation (absolute header + `contentContainerStyle.paddingTop`
+  compensation) had two stacking side effects: the pull-to-refresh spinner
+  rendered at the top of the full-screen list frame _behind_ the opaque header,
+  and the fixed top padding left a permanent blank strip when collapsed. Fixing
+  refresh by insetting the frame exposed the blank-strip bug. We removed the
+  overlay entirely: the header is a real flex row above the list whose `height`
+  and inner `translateY` both spring on the same `progress` (hybrid glide) —
+  contents glide up exactly as before while the row shrinks in sync, so the
+  list frame grows to fill the vacated space. No backdrop, no blank strip, and
+  the spinner always sits at the list's real top. This animates a _sibling
+  layout_ row, not the scroll content, so D-014's rejection of animating
+  `paddingTop` still stands.
+
+---
+
 ## D-014 — Snappy search/filter pipeline + collapsible header
 
 **Status:** accepted  

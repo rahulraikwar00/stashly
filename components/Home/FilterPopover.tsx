@@ -4,7 +4,7 @@ import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 
-export type FilterGroup = 'type' | 'status';
+export type FilterGroup = 'type' | 'status' | 'sort';
 
 type FilterChipDef = {
   value: string;
@@ -27,24 +27,41 @@ const STATUS_CHIPS: FilterChipDef[] = [
   { value: 'archived', label: 'Archived', icon: 'archive-outline' },
 ];
 
+const SORT_CHIPS: FilterChipDef[] = [
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+  { value: 'unread', label: 'Unread first', icon: 'ellipse' },
+  { value: 'favorites', label: 'Favorites first', icon: 'heart' },
+];
+
 export function FilterPopover({
   visible,
   onClose,
   type,
   status,
+  sort,
+  tag,
   onSelectGroup,
+  onClearTag,
 }: {
   visible: boolean;
   onClose: () => void;
   type: string;
   status: string;
+  sort: string;
+  tag?: string;
   onSelectGroup: (group: FilterGroup, value: string) => void;
+  onClearTag: () => void;
 }) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
 
-  const hasActiveFilters = type !== 'all' || status !== 'all';
-  const selectedFor = (group: FilterGroup) => (group === 'type' ? type : status);
+  const hasActiveFilters = type !== 'all' || status !== 'all' || !!tag;
+  const selectedFor = (group: FilterGroup) => {
+    if (group === 'type') return type;
+    if (group === 'status') return status;
+    return sort;
+  };
 
   return (
     <PopupCard visible={visible} onClose={onClose} maxWidth={300}>
@@ -57,6 +74,7 @@ export function FilterPopover({
             onPress={() => {
               onSelectGroup('type', 'all');
               onSelectGroup('status', 'all');
+              onClearTag();
             }}
             disabled={!hasActiveFilters}
             hitSlop={8}>
@@ -67,6 +85,28 @@ export function FilterPopover({
             </Text>
           </Pressable>
         </View>
+
+        {tag && (
+          <View className="mt-3.5">
+            <Text
+              className="text-[10px] font-bold uppercase tracking-widest"
+              style={{ color: c.textFaint }}>
+              Tag
+            </Text>
+            <View className="mt-1.5 flex-row items-center">
+              <View
+                className="flex-row items-center rounded-full py-1.5 pl-3 pr-1.5"
+                style={{ backgroundColor: c.primary }}>
+                <Text className="text-[12px] font-semibold" style={{ color: '#FFFFFF' }}>
+                  #{tag}
+                </Text>
+                <Pressable onPress={onClearTag} hitSlop={6} className="ml-1.5">
+                  <Ionicons name="close" size={13} color="#FFFFFF" />
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        )}
 
         <FilterSection
           label="Type"
@@ -79,6 +119,12 @@ export function FilterPopover({
           chips={STATUS_CHIPS}
           selected={selectedFor('status')}
           onSelect={(value) => onSelectGroup('status', value)}
+        />
+        <FilterSection
+          label="Sort"
+          chips={SORT_CHIPS}
+          selected={selectedFor('sort')}
+          onSelect={(value) => onSelectGroup('sort', value)}
         />
       </View>
     </PopupCard>

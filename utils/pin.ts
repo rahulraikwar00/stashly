@@ -8,13 +8,15 @@ export function bookmarkToPin(b: Bookmark): Pin {
   return {
     id: b.id,
     url: b.url,
-    title: b.title,
-    description: b.description,
+    title: b.customTitle || b.title,
+    description: b.customDescription || b.description,
+    autoTitle: b.title,
+    autoDescription: b.description,
     source: b.siteName || b.domain || '',
     favicon: b.favicon,
     image: b.image,
     imageRatio: getImageAspectRatio(b.image),
-    tags: b.tags ? JSON.parse(b.tags) : [],
+    tags: b.tags ? parseTags(b.tags) : [],
     type: (b.type ?? 'link') as BookmarkType,
     notes: b.notes,
     author: b.author,
@@ -23,6 +25,27 @@ export function bookmarkToPin(b: Bookmark): Pin {
     isArchived: b.isArchived,
     isRead: b.isRead,
   };
+}
+
+/**
+ * Parses the comma-separated tag input the user types (or a stored JSON array
+ * string) into a normalized, de-duplicated list: lowercase, no leading `#`,
+ * no double quotes (keeps the JSON-substring tag filter reliable), empty
+ * entries dropped.
+ */
+export function parseTags(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((t) => t.trim().toLowerCase().replace(/^#/, '').replace(/"/g, ''))
+        .filter(Boolean)
+    )
+  );
+}
+
+export function normalizeTags(value: string): string[] {
+  return parseTags(value);
 }
 
 function validRatio(w: number, h: number): number | null {
@@ -139,10 +162,13 @@ export function pinMatchesFilters(pin: Pin, query: BookmarkQuery): boolean {
   if (query.type && pin.type !== query.type) return false;
   if (query.favorite !== undefined && pin.isFavorite !== query.favorite) return false;
   if (query.unread !== undefined && pin.isRead === query.unread) return false;
+  if (query.tag && !pin.tags.includes(query.tag)) return false;
 
   const search = query.search?.trim().toLowerCase();
   if (search) {
-    const haystack = [pin.title, pin.description, pin.source, pin.url].join(' ').toLowerCase();
+    const haystack = [pin.title, pin.description, pin.source, pin.notes, pin.url]
+      .join(' ')
+      .toLowerCase();
     if (!haystack.includes(search)) return false;
   }
   return true;

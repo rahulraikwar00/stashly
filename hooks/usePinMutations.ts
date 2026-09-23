@@ -1,8 +1,22 @@
 // hooks/usePinMutations.ts
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import type { BookmarkQuery, Pin } from '@/types/bookmarks';
-import { deleteBookmark, setArchived, setFavorite, setRead } from '@/db/bookmarkService';
+import {
+  deleteBookmark,
+  setArchived,
+  setFavorite,
+  setRead,
+  updateBookmark,
+} from '@/db/bookmarkService';
 import { pinMatchesFilters } from '@/utils/pin';
+
+/** User-editable fields written to the bookmark row on edit. */
+export type EditPinPatch = {
+  customTitle: string;
+  customDescription: string;
+  notes: string;
+  tags: string[];
+};
 
 /**
  * Optimistic mutation helpers for the Library grid. Each mutation updates
@@ -81,5 +95,35 @@ export function usePinMutations(
     [pins, setPins, onMutated]
   );
 
-  return { toggleFavorite, toggleRead, toggleArchive, deletePin };
+  /**
+   * Writes the user-editable fields (customTitle, customDescription, notes,
+   * tags). The optimistic update resolves the effective display values from
+   * the preserved auto values: an empty override falls back to the
+   * auto-extracted one.
+   */
+  const editPin = useCallback(
+    (pin: Pin, patch: EditPinPatch) => {
+      const run = () =>
+        updateBookmark(pin.id, {
+          customTitle: patch.customTitle.trim(),
+          customDescription: patch.customDescription.trim(),
+          notes: patch.notes.trim(),
+          tags: JSON.stringify(patch.tags),
+        });
+      applyOptimistic(
+        pin.id,
+        (p) => ({
+          ...p,
+          title: patch.customTitle.trim() || p.autoTitle,
+          description: patch.customDescription.trim() || p.autoDescription,
+          notes: patch.notes.trim(),
+          tags: patch.tags,
+        }),
+        run
+      );
+    },
+    [applyOptimistic]
+  );
+
+  return { toggleFavorite, toggleRead, toggleArchive, deletePin, editPin };
 }

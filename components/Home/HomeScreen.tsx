@@ -2,7 +2,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
-import { ActivityIndicator, Linking, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, Share, Text, View } from 'react-native';
 import { useToast } from '@/components/Feedback/ToastProvider';
 import { useConfirm } from '@/components/Feedback/ConfirmProvider';
 import { MasonryGrid } from './MasonryGrid';
@@ -12,16 +12,17 @@ import { FilterPopover, type FilterGroup } from './FilterPopover';
 import { AddBookmarkPopover } from '@/components/Pin/AddBookmarkPopover';
 import { PinActionMenu } from '@/components/Pin/PinActionMenu';
 import { PinDetailPopover } from '@/components/Pin/PinDetailPopover';
+import { EditBookmarkPopover } from '@/components/Pin/EditBookmarkPopover';
 import { ProfilePopover } from '@/components/Profile/ProfilePopover';
 import { UserAvatar } from '@/components/Profile/UserAvatar';
 import { usePins } from '@/hooks/usePins';
-import { usePinMutations } from '@/hooks/usePinMutations';
+import { usePinMutations, type EditPinPatch } from '@/hooks/usePinMutations';
 import { useSettings } from '@/hooks/useSettings';
-import type { BookmarkQuery, BookmarkType, Pin } from '@/types/bookmarks';
+import type { BookmarkQuery, BookmarkType, Pin, SortKey } from '@/types/bookmarks';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type Overlay = { pin: Pin; mode: 'actions' | 'detail' } | null;
+type Overlay = { pin: Pin; mode: 'actions' | 'detail' | 'edit' } | null;
 
 export function HomeScreen() {
   const theme = useTheme() as AppTheme;
@@ -33,12 +34,15 @@ export function HomeScreen() {
   const deferredSearch = useDeferredValue(search);
   const [type, setType] = useState('all');
   const [status, setStatus] = useState(settings.defaultStatus || 'all');
+  const [sort, setSort] = useState<SortKey>('newest');
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [active, setActive] = useState<Overlay>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
-  const filtersActive = type !== 'all' || status !== 'all';
+  const filtersActive =
+    type !== 'all' || status !== 'all' || tagFilter != null || sort !== 'newest';
 
   const onSelectGroup = useCallback(
     (group: FilterGroup, value: string) => {
@@ -47,11 +51,27 @@ export function HomeScreen() {
         setType(value);
         return;
       }
-      if (value === status) return;
-      setStatus(value);
+      if (group === 'status') {
+        if (value === status) return;
+        setStatus(value);
+        return;
+      }
+      if (value === sort) return;
+      setSort(value as SortKey);
     },
-    [type, status]
+    [type, status, sort]
   );
+
+  const clearFilters = useCallback(() => {
+    setType('all');
+    setStatus('all');
+    setTagFilter(null);
+  }, []);
+
+  const handleTagFilter = useCallback((tag: string) => {
+    setTagFilter(tag);
+    setActive(null);
+  }, []);
 
   const query = useMemo<BookmarkQuery>(
     () => ({
@@ -60,8 +80,10 @@ export function HomeScreen() {
       type: type === 'all' ? undefined : (type as BookmarkType),
       favorite: status === 'favorites' ? true : undefined,
       unread: status === 'unread' ? true : undefined,
+      tag: tagFilter ?? undefined,
+      sort: sort === 'newest' ? undefined : sort,
     }),
-    [deferredSearch, type, status]
+    [deferredSearch, type, status, tagFilter, sort]
   );
 
   const { pins, setPins, loading, refreshing, hasMore, error, loadMore, refresh } = usePins(query);
@@ -75,7 +97,7 @@ export function HomeScreen() {
     });
   }, []);
 
-  const { toggleFavorite, toggleRead, toggleArchive, deletePin } = usePinMutations(
+  const { toggleFavorite, toggleRead, toggleArchive, deletePin, editPin } = usePinMutations(
     pins,
     setPins,
     query,
@@ -144,10 +166,24 @@ export function HomeScreen() {
     [confirm, deletePin]
   );
 
+  const handleSharePin = useCallback((pin: Pin) => {
+    void Share.share({ title: pin.title, message: pin.url });
+  }, []);
+
+  const handleEditPin = useCallback((pin: Pin) => setActive({ pin, mode: 'edit' }), []);
+
+  const handleEditSave = useCallback(
+    (pin: Pin, patch: EditPinPatch) => {
+      editPin(pin, patch);
+      setActive(null);
+    },
+    [editPin]
+  );
+
   const header = useMemo(
     () => (
-      <View className="mt-4 px-4 pb-3 pt-4">
-        <View className="flex-row items-center justify-between">
+      <View className="mt-4 px-4 pb-3 pt-4 ">
+        <View className="flex-row items-center justify-between ">
           <Text
             className="text-[24px] font-bold tracking-tight"
             style={{ color: theme.colors.text }}>
@@ -228,10 +264,17 @@ export function HomeScreen() {
         onClose={() => setShowFilters(false)}
         type={type}
         status={status}
+        sort={sort}
+        tag={tagFilter ?? undefined}
         onSelectGroup={onSelectGroup}
+        onClearTag={clearFilters}
       />
 
-      <ProfilePopover visible={showProfile} onClose={() => setShowProfile(false)} />
+      <ProfilePopover
+        visible={showProfile}
+        onClose={() => setShowProfile(false)}
+        onImported={handleSaved}
+      />
 
       {active?.mode === 'actions' && (
         <PinActionMenu
@@ -240,10 +283,12 @@ export function HomeScreen() {
           onClose={() => setActive(null)}
           onOpenLink={() => openLink(active.pin)}
           onViewDetails={() => setActive((prev) => (prev ? { ...prev, mode: 'detail' } : prev))}
+          onEdit={() => handleEditPin(active.pin)}
           onToggleFavorite={() => toggleFavorite(active.pin)}
           onToggleRead={() => toggleRead(active.pin)}
           onToggleArchive={() => toggleArchive(active.pin)}
           onCopyUrl={() => copyUrl(active.pin)}
+          onShare={() => handleSharePin(active.pin)}
           onDelete={() => confirmDelete(active.pin)}
         />
       )}
@@ -258,7 +303,19 @@ export function HomeScreen() {
           onToggleRead={() => toggleRead(active.pin)}
           onToggleArchive={() => toggleArchive(active.pin)}
           onCopyUrl={() => copyUrl(active.pin)}
+          onEdit={() => handleEditPin(active.pin)}
+          onShare={() => handleSharePin(active.pin)}
+          onTagPress={handleTagFilter}
           onDelete={() => confirmDelete(active.pin)}
+        />
+      )}
+
+      {active?.mode === 'edit' && (
+        <EditBookmarkPopover
+          pin={active.pin}
+          visible
+          onClose={() => setActive(null)}
+          onSave={(patch) => handleEditSave(active.pin, patch)}
         />
       )}
     </View>

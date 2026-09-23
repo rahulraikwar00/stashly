@@ -17,6 +17,9 @@ export function PinDetailPopover({
   onToggleRead,
   onToggleArchive,
   onCopyUrl,
+  onEdit,
+  onShare,
+  onTagPress,
   onDelete,
 }: {
   pin: Pin;
@@ -27,6 +30,9 @@ export function PinDetailPopover({
   onToggleRead: () => void;
   onToggleArchive: () => void;
   onCopyUrl: () => void;
+  onEdit: () => void;
+  onShare: () => void;
+  onTagPress: (tag: string) => void;
   onDelete: () => void;
 }) {
   const theme = useTheme() as AppTheme;
@@ -86,14 +92,15 @@ export function PinDetailPopover({
             {pin.tags.length > 0 && (
               <View className="mt-2.5 flex-row flex-wrap">
                 {pin.tags.map((tag) => (
-                  <View
+                  <Pressable
                     key={tag}
-                    className="mb-1.5 mr-1.5 rounded-full px-2.5 py-1"
+                    onPress={() => onTagPress(tag)}
+                    className="mb-1.5 mr-1.5 rounded-full px-2.5 py-1 active:opacity-70"
                     style={{ backgroundColor: c.surfaceAlt }}>
                     <Text className="text-[10px] font-semibold" style={{ color: c.textMuted }}>
                       #{tag}
                     </Text>
-                  </View>
+                  </Pressable>
                 ))}
               </View>
             )}
@@ -154,6 +161,8 @@ export function PinDetailPopover({
               onPress={onToggleArchive}
             />
             <DetailIcon name="copy-outline" color={c.textFaint} onPress={onCopyUrl} />
+            <DetailIcon name="pencil-outline" color={c.textFaint} onPress={onEdit} />
+            <DetailIcon name="share-outline" color={c.textFaint} onPress={onShare} />
             <DetailIcon name="trash-outline" color="#EF4444" onPress={onDelete} />
           </View>
         </View>

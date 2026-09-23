@@ -19,6 +19,7 @@ import { useToast } from '@/components/Feedback/ToastProvider';
 import { useConfirm } from '@/components/Feedback/ConfirmProvider';
 import { useSettings } from '@/hooks/useSettings';
 import type { SettingsPatch } from '@/db/settingsService';
+import { importBookmarksJson, shareBookmarksExport } from '@/db/backup';
 import {
   DEFAULT_STATUS_CHOICES,
   THEME_CHOICES,
@@ -104,7 +105,15 @@ function ChoiceChips<T extends string>({
   );
 }
 
-export function ProfilePopover({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+export function ProfilePopover({
+  visible,
+  onClose,
+  onImported,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onImported?: () => void;
+}) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
   const { settings, update } = useSettings();
@@ -128,6 +137,9 @@ export function ProfilePopover({ visible, onClose }: { visible: boolean; onClose
   const [errors, setErrors] = useState<ProfileErrors>({});
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [showServer, setShowServer] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
+  const [backupText, setBackupText] = useState('');
+  const [backupBusy, setBackupBusy] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const setField = (field: keyof FormFields, value: string) => {
@@ -201,6 +213,50 @@ export function ProfilePopover({ visible, onClose }: { visible: boolean; onClose
     if (!ok) return;
     setForm((f) => ({ ...f, displayName: '', username: '', email: '', avatarUri: '' }));
     setErrors({});
+  };
+
+  const onExport = async () => {
+    setBackupBusy(true);
+    try {
+      const result = await shareBookmarksExport();
+      if (!result) {
+        showToast('Sharing is not available on this device.', 'error');
+      } else {
+        showToast(`Exported ${result.count} bookmark${result.count === 1 ? '' : 's'}.`, 'success');
+      }
+    } catch {
+      showToast('Could not export. Please try again.', 'error');
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const onImport = async () => {
+    if (!backupText.trim() || backupBusy) return;
+    const ok = await confirm({
+      title: 'Import backup',
+      message: 'New bookmarks will be added. Links you already have are kept.',
+      confirmLabel: 'Import',
+    });
+    if (!ok) return;
+    setBackupBusy(true);
+    try {
+      const result = await importBookmarksJson(backupText);
+      setBackupText('');
+      const summary =
+        result.skipped > 0
+          ? `${result.imported} imported, ${result.skipped} skipped as duplicates.`
+          : `Imported ${result.imported} bookmark${result.imported === 1 ? '' : 's'}.`;
+      showToast(summary, 'success');
+      onImported?.();
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Could not import. Check the JSON file.',
+        'error'
+      );
+    } finally {
+      setBackupBusy(false);
+    }
   };
 
   const hasChanges = useMemo(() => {
@@ -385,6 +441,80 @@ export function ProfilePopover({ visible, onClose }: { visible: boolean; onClose
                 autoCorrect: false,
                 secure: !apiKeyVisible,
               })}
+            </>
+          )}
+
+          {/* ‒ Backup ‒ */}
+          <Pressable
+            onPress={() => setShowBackup((s) => !s)}
+            className="mt-4 flex-row items-center justify-between rounded-2xl px-3 py-2.5"
+            style={{ backgroundColor: c.surfaceAlt }}>
+            <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
+              Backup library
+            </Text>
+            <Ionicons
+              name={showBackup ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color={c.textMuted}
+            />
+          </Pressable>
+          {showBackup && (
+            <>
+              <Text className="mt-0.5 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
+                Export every bookmark to a JSON file, or restore from one by pasting it below.
+              </Text>
+              <Pressable
+                onPress={onExport}
+                disabled={backupBusy}
+                className="mt-2 flex-row items-center justify-center rounded-2xl py-2.5"
+                style={{ backgroundColor: backupBusy ? c.surfaceAlt : c.surfaceAlt }}>
+                {backupBusy ? (
+                  <ActivityIndicator size="small" color={c.primary} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="download-outline"
+                      size={15}
+                      color={c.primary}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text className="text-[12px] font-semibold" style={{ color: c.primary }}>
+                      Export bookmarks (.json)
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+              <TextInput
+                className="mt-2 rounded-2xl px-3 py-2 text-[11px]"
+                style={{
+                  backgroundColor: c.surfaceAlt,
+                  color: c.text,
+                  minHeight: 72,
+                  textAlignVertical: 'top',
+                }}
+                placeholder="Paste exported JSON here to restore…"
+                placeholderTextColor={c.textMuted}
+                value={backupText}
+                onChangeText={setBackupText}
+                multiline
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Pressable
+                onPress={onImport}
+                disabled={!backupText.trim() || backupBusy}
+                className="mt-2 items-center rounded-2xl py-2.5"
+                style={{
+                  backgroundColor: !backupText.trim() || backupBusy ? c.surfaceAlt : c.primary,
+                }}>
+                <Text
+                  className="text-[12px] font-bold"
+                  style={{
+                    color: !backupText.trim() || backupBusy ? c.textFaint : '#FFFFFF',
+                  }}>
+                  Import bookmarks
+                </Text>
+              </Pressable>
             </>
           )}
 

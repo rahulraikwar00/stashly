@@ -11,10 +11,12 @@ export function PinActionMenu({
   onClose,
   onOpenLink,
   onViewDetails,
+  onEdit,
   onToggleFavorite,
   onToggleRead,
   onToggleArchive,
   onCopyUrl,
+  onShare,
   onDelete,
 }: {
   pin: Pin;
@@ -22,10 +24,12 @@ export function PinActionMenu({
   onClose: () => void;
   onOpenLink: () => void;
   onViewDetails: () => void;
+  onEdit: () => void;
   onToggleFavorite: () => void;
   onToggleRead: () => void;
   onToggleArchive: () => void;
   onCopyUrl: () => void;
+  onShare: () => void;
   onDelete: () => void;
 }) {
   const theme = useTheme() as AppTheme;
@@ -43,6 +47,12 @@ export function PinActionMenu({
       label: 'View details',
       color: c.text,
       onPress: onViewDetails,
+    },
+    {
+      icon: 'pencil-outline',
+      label: 'Edit',
+      color: c.text,
+      onPress: onEdit,
     },
     {
       icon: pin.isFavorite ? 'heart' : 'heart-outline',
@@ -67,6 +77,12 @@ export function PinActionMenu({
       label: 'Copy URL',
       color: c.text,
       onPress: onCopyUrl,
+    },
+    {
+      icon: 'share-outline',
+      label: 'Share link',
+      color: c.text,
+      onPress: onShare,
     },
     {
       icon: 'trash-outline',
