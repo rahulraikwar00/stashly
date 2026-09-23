@@ -1,11 +1,38 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
 import type { Pin } from '@/types/bookmarks';
-import { LayoutChangeEvent, View } from 'react-native';
-import { imageHeightFor, splitIntoColumns } from '@/utils/pin';
+import { useTheme } from 'expo-router';
+import type { AppTheme } from '@/constants/theme';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import { LayoutChangeEvent, RefreshControl, View } from 'react-native';
+import Animated, {
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { imageHeightFor } from '@/utils/pin';
 import { PinCard } from './PinCard';
 
-const H_PADDING = 16; // px-2
-const COLUMN_MARGIN = 4; // mx-1 on each side
+const GRID_EDGE_PADDING = 8; // px-2 per side; inner width = W - 16
+const COLUMN_MARGIN = 4; // mx-1 on each side of a card
+const COLLAPSE_THRESHOLD = 8; // px of downward scroll before the header hides
+const HEADER_SPRING = { damping: 22, stiffness: 220, mass: 0.7 };
+
+type ListExtraComponent = ComponentType | ReactElement | null | undefined;
+
+// Reanimated needs its own wrapped list for `useAnimatedScrollHandler` to
+// attach worklet scroll events; props (masonry, numColumns, ...) pass through.
+// The cast restores FlashList's generic item typing that createAnimatedComponent erases.
+const AnimatedFlashList = Animated.createAnimatedComponent(FlashList) as typeof FlashList;
 
 // Fixed width breakpoints: phone 2-up, tablet 3-up, large/landscape 4-up.
 function columnsForWidth(width: number): number {
@@ -34,13 +61,15 @@ const MasonryItem = memo(function MasonryItem({
   const handlePressMenu = useCallback(() => onPressMenu?.(pin), [onPressMenu, pin]);
 
   return (
-    <PinCard
-      pin={pin}
-      imageHeight={imageHeight}
-      onPress={onPress}
-      onLongPress={onLongPress}
-      onPressMenu={handlePressMenu}
-    />
+    <View style={{ marginHorizontal: COLUMN_MARGIN }}>
+      <PinCard
+        pin={pin}
+        imageHeight={imageHeight}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        onPressMenu={handlePressMenu}
+      />
+    </View>
   );
 });
 
@@ -49,46 +78,158 @@ export const MasonryGrid = memo(function MasonryGrid({
   onPressPin,
   onLongPressPin,
   onPressMenu,
+  headerContent,
+  footer,
+  empty,
+  refreshing,
+  onRefresh,
+  onEndReached,
+  bottomPadding,
 }: {
   pins: Pin[];
   onPressPin?: (pin: Pin) => void;
   onLongPressPin?: (pin: Pin) => void;
   onPressMenu?: (pin: Pin) => void;
+  headerContent?: ReactNode;
+  footer?: ListExtraComponent;
+  empty?: ListExtraComponent;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  onEndReached?: () => void;
+  bottomPadding: number;
 }) {
   const [containerWidth, setContainerWidth] = useState(0);
+  const [headerHeight, setHeaderHeight] = useState(0);
+
+  const theme = useTheme() as AppTheme;
+
+  // Shared-value scroll state: 0 = header pinned, 1 = collapsed. Values are
+  // reset on remount (keyed by columnCount) so a rotation never shows a hidden
+  // header over an empty padded gap.
+  const progress = useSharedValue(0);
+  const prevScrollY = useSharedValue(0);
 
   const onLayout = (e: LayoutChangeEvent) => {
     setContainerWidth(e.nativeEvent.layout.width);
   };
 
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      const y = e.contentOffset.y;
+      if (y <= 2) {
+        progress.value = 0;
+        prevScrollY.value = y;
+        return;
+      }
+      const dy = y - prevScrollY.value;
+      prevScrollY.value = y;
+      if (dy > 0) {
+        // Content scrolls up (reading further) -> hide once past the threshold.
+        if (y > COLLAPSE_THRESHOLD) progress.value = 1;
+      } else if (dy < 0) {
+        // Content scrolls down (back toward the top) -> reveal immediately,
+        // no need to reach the top.
+        progress.value = 0;
+      }
+    },
+  });
+
+  const headerOverlayStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: withSpring(-progress.value * headerHeight, HEADER_SPRING) }],
+  }));
+
   const fallbackWidth = 180;
   const width = containerWidth || fallbackWidth;
   const columnCount = columnsForWidth(width);
-  const columnWidth = (width - H_PADDING - COLUMN_MARGIN * columnCount * 2) / columnCount;
+  // Card width parity with the previous px-2 + mx-1 layout:
+  // (W - 16) / columnCount - 8. FlashList cells span (W - 16) / columnCount
+  // because contentContainerStyle applies GRID_EDGE_PADDING on each side.
+  const columnWidth =
+    (width - GRID_EDGE_PADDING * 2 - COLUMN_MARGIN * columnCount * 2) / columnCount;
 
-  const columns = useMemo(() => splitIntoColumns(pins, columnCount), [pins, columnCount]);
+  // Hides the header whenever the grid remounts (column/rotation change).
+  useEffect(() => {
+    progress.value = 0;
+  }, [columnCount, progress]);
+
   const heights = useMemo(() => {
     const map = new Map<number, number>();
     for (const pin of pins) map.set(pin.id, imageHeightFor(pin, columnWidth));
     return map;
   }, [pins, columnWidth]);
 
+  const renderItem = useCallback(
+    ({ item }: ListRenderItemInfo<Pin>) => (
+      <MasonryItem
+        pin={item}
+        imageHeight={heights.get(item.id) ?? 0}
+        onPressPin={onPressPin}
+        onLongPressPin={onLongPressPin}
+        onPressMenu={onPressMenu}
+      />
+    ),
+    [heights, onPressPin, onLongPressPin, onPressMenu]
+  );
+
+  const keyExtractor = useCallback((item: Pin) => String(item.id), []);
+
   return (
-    <View className="flex-row px-2" onLayout={onLayout}>
-      {columns.map((items, index) => (
-        <View key={index} className="flex-1" style={{ marginHorizontal: COLUMN_MARGIN }}>
-          {items.map((pin) => (
-            <MasonryItem
-              key={pin.id}
-              pin={pin}
-              imageHeight={heights.get(pin.id) ?? 0}
-              onPressPin={onPressPin}
-              onLongPressPin={onLongPressPin}
-              onPressMenu={onPressMenu}
-            />
-          ))}
-        </View>
-      ))}
+    <View className="flex-1" onLayout={onLayout}>
+      <AnimatedFlashList
+        key={columnCount}
+        className="flex-1"
+        data={pins}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        masonry
+        numColumns={columnCount}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        ListHeaderComponent={null}
+        ListFooterComponent={footer}
+        ListEmptyComponent={empty}
+        contentContainerStyle={{
+          paddingHorizontal: GRID_EDGE_PADDING,
+          paddingTop: headerHeight,
+          paddingBottom: bottomPadding,
+        }}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.5}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing ?? false}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.textMuted}
+            colors={[theme.colors.textMuted]}
+            progressBackgroundColor={theme.colors.card}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+        alwaysBounceVertical
+        keyboardShouldPersistTaps="handled"
+      />
+
+      {/* Collapsed header: overlaid, springs away when content scrolls up and
+          back the moment content scrolls down. box-none keeps card taps alive
+          under any part of the header that isn't an interactive child. */}
+      {headerContent != null && (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            headerOverlayStyle,
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              zIndex: 2,
+              backgroundColor: theme.colors.background,
+            },
+          ]}
+          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
+          {headerContent}
+        </Animated.View>
+      )}
     </View>
   );
 });

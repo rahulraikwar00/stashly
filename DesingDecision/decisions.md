@@ -5,6 +5,72 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
+## D-014 — Snappy search/filter pipeline + collapsible header
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+
+Search and filter felt slow even though queries are single-threaded SQLite
+with indexes: every keystroke blanked the grid (old pins wiped, spinner-only),
+the pipeline double-delayed results (`useDeferredValue` **plus** a 250ms
+debounce **plus** a `setTimeout(0)` reset), filter-chip taps refetched even on
+no-op, and with the keyboard open the first tap on the grid/filter was swallowed
+(`keyboardShouldPersistTaps` defaults to `never`). Separately, D-011's header
+(~90px) permanently occupied the top of the screen; the whole header should
+retract while reading and come back as soon as the user scrolls toward the top
+— without having to reach it.
+
+### Decision
+
+- **One deferral only.** `useDeferredValue` in `HomeScreen` is the sole
+  debounce; `hooks/usePins.ts` no longer debounces (its 250ms timer,
+  `debouncedQuery`, `prevKeyRef` removed).
+- **Stale-while-revalidate:** pins stay rendered while the next page loads —
+  the reset no longer calls `setPins([])`. `loadMore(reset)` replaces the list
+  (`setPins(next)`) on a reset (new query / pull-to-refresh) and appends
+  otherwise; the generation ref still drops out-of-order responses; the
+  loading spinner stays in the list footer as the only searching indicator.
+- **No-op taps are free:** `onSelectGroup` guards identical value before calling
+  `setType`/`setStatus` (query is memoized, so state-set was the only cost).
+- **First tap lands:** `MasonryGrid` sets `keyboardShouldPersistTaps="handled"`.
+- **Collapsible header (D-011 header, not the page chrome):** the header leaves
+  the list's `ListHeaderComponent` and becomes an absolute overlay inside
+  `MasonryGrid` (opaque `theme.colors.background`, `pointerEvents="box-none"`,
+  `zIndex: 2`). Its measured height becomes `contentContainerStyle.paddingTop`.
+  A Reanimated `useAnimatedScrollHandler` on `Animated.createAnimatedComponent(
+FlashList)` drives `progress` (0 = shown, 1 = hidden): `y ≤ 2` pins it,
+  scrolling content up past 8px hides it, scrolling content down (toward the
+  top) reveals it **immediately** mid-list; `withSpring` (`damping:22,
+stiffness:220, mass:0.7`) animates the slide; `progress` resets to 0 when the
+  grid remounts (column-count/rotation change).
+- Search feedback stays the existing footer `ActivityIndicator` — no new label.
+
+### Why not
+
+- **FTS5 trigram search (Tier 2)** — `LIKE '%term%'` can't use an index, but
+  FTS5 adds a shadow-table migration and its own resize/consistency risks while
+  the library is small (~hundreds); the pipeline was the real perceived
+  bottleneck. Deferred; expo-sqlite bundles SQLite 3.50.3 with FTS5 + trigram
+  available if it's ever needed.
+- **Spring vs smooth** — a spring (slightly bouncy, ~8px threshold) reads as
+  natural on iOS and stays snappy on Android; a fixed 180–250ms ease can feel
+  laggy right after drag-scroll.
+- **Animating `contentContainerStyle.paddingTop` down** so content slides into
+  the freed strip — more moving parts (layout thrash per frame) for marginal
+  gain; a fixed top padding + header overlay reads naturally.
+
+### Notes
+
+- Requires Reanimated on a New-Architecture build (already the case). The
+  RN-core `AnimatedFlashList` export was bypassed; the Reanimated
+  `createAnimatedComponent` wrap is what lets `useAnimatedScrollHandler`
+  attach. If the worklet handler ever fails to fire through FlashList v2, drop
+  back to a JS `onScroll` + RN-core `Animated.Value` — same overlay math.
+
+---
+
 ## D-013 — Metadata extractor URL comes from Profile settings (env only prefills)
 
 **Status:** accepted  

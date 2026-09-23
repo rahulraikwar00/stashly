@@ -2,17 +2,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
-import {
-  ActivityIndicator,
-  Linking,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Linking, Pressable, Text, View } from 'react-native';
 import { useToast } from '@/components/Feedback/ToastProvider';
 import { useConfirm } from '@/components/Feedback/ConfirmProvider';
 import { MasonryGrid } from './MasonryGrid';
@@ -30,8 +20,6 @@ import { useSettings } from '@/hooks/useSettings';
 import type { BookmarkQuery, BookmarkType, Pin } from '@/types/bookmarks';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-const NEAR_BOTTOM = 240;
 
 type Overlay = { pin: Pin; mode: 'actions' | 'detail' } | null;
 
@@ -52,10 +40,18 @@ export function HomeScreen() {
 
   const filtersActive = type !== 'all' || status !== 'all';
 
-  const onSelectGroup = useCallback((group: FilterGroup, value: string) => {
-    if (group === 'type') return setType(value);
-    setStatus(value);
-  }, []);
+  const onSelectGroup = useCallback(
+    (group: FilterGroup, value: string) => {
+      if (group === 'type') {
+        if (value === type) return;
+        setType(value);
+        return;
+      }
+      if (value === status) return;
+      setStatus(value);
+    },
+    [type, status]
+  );
 
   const query = useMemo<BookmarkQuery>(
     () => ({
@@ -90,16 +86,6 @@ export function HomeScreen() {
   const handleSaved = useCallback(() => {
     void refresh();
   }, [refresh]);
-
-  const onScroll = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-      const isNearBottom =
-        layoutMeasurement.height + contentOffset.y >= contentSize.height - NEAR_BOTTOM;
-      if (isNearBottom) loadMore();
-    },
-    [loadMore]
-  );
 
   const handlePressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'detail' }), []);
   const handleLongPressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'actions' }), []);
@@ -158,77 +144,76 @@ export function HomeScreen() {
     [confirm, deletePin]
   );
 
+  const header = useMemo(
+    () => (
+      <View className="mt-4 px-4 pb-3 pt-4">
+        <View className="flex-row items-center justify-between">
+          <Text
+            className="text-[24px] font-bold tracking-tight"
+            style={{ color: theme.colors.text }}>
+            Bookmarks
+          </Text>
+          <Pressable hitSlop={8} onPress={() => setShowProfile(true)} className="active:opacity-70">
+            <UserAvatar
+              uri={settings?.avatarUri ?? ''}
+              name={settings?.displayName || settings?.username || ''}
+              size={28}
+            />
+          </Pressable>
+        </View>
+
+        <View className="mt-2.5">
+          <SearchBar value={search} onChangeText={setSearch} trailing={trailing} />
+        </View>
+      </View>
+    ),
+    [search, trailing, settings, theme.colors.text]
+  );
+
+  const footer = useMemo(
+    () => (
+      <View className="py-6">
+        {loading && <ActivityIndicator />}
+        {!hasMore && pins.length > 0 && (
+          <Text className="text-center text-[11px]" style={{ color: theme.colors.textFaint }}>
+            {"You've reached the end"}
+          </Text>
+        )}
+        {error && (
+          <Text className="text-center text-[11px]" style={{ color: '#EF4444' }}>
+            Something went wrong. Pull to retry.
+          </Text>
+        )}
+      </View>
+    ),
+    [loading, hasMore, pins.length, error, theme.colors.textFaint]
+  );
+
+  const empty = useMemo(
+    () =>
+      !loading && !refreshing && !error ? (
+        <Text className="mt-16 text-center text-[12px]" style={{ color: theme.colors.textMuted }}>
+          No bookmarks yet.
+        </Text>
+      ) : null,
+    [loading, refreshing, error, theme.colors.textMuted]
+  );
+
   return (
     <View className="flex-1" style={{ backgroundColor: theme.colors.background }}>
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
-        showsVerticalScrollIndicator={false}
-        alwaysBounceVertical
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={theme.colors.textMuted}
-            colors={[theme.colors.textMuted]}
-            progressBackgroundColor={theme.colors.card}
-          />
-        }>
-        <View className="mt-4 px-4 pb-3 pt-4">
-          <View className="flex-row items-center justify-between">
-            <Text
-              className="text-[24px] font-bold tracking-tight"
-              style={{ color: theme.colors.text }}>
-              Bookmarks
-            </Text>
-            <Pressable
-              hitSlop={8}
-              onPress={() => setShowProfile(true)}
-              className="active:opacity-70">
-              <UserAvatar
-                uri={settings?.avatarUri ?? ''}
-                name={settings?.displayName || settings?.username || ''}
-                size={28}
-              />
-            </Pressable>
-          </View>
-
-          <View className="mt-2.5">
-            <SearchBar value={search} onChangeText={setSearch} trailing={trailing} />
-          </View>
-        </View>
-
-        {pins.length > 0 && (
-          <MasonryGrid
-            pins={pins}
-            onPressPin={handlePressPin}
-            onLongPressPin={handleLongPressPin}
-            onPressMenu={handlePressMenu}
-          />
-        )}
-
-        <View className="py-6">
-          {loading && <ActivityIndicator />}
-          {!hasMore && pins.length > 0 && (
-            <Text className="text-center text-[11px]" style={{ color: theme.colors.textFaint }}>
-              {"You've reached the end"}
-            </Text>
-          )}
-          {error && (
-            <Text className="text-center text-[11px]" style={{ color: '#EF4444' }}>
-              Something went wrong. Pull to retry.
-            </Text>
-          )}
-          {!loading && !refreshing && pins.length === 0 && !error && (
-            <Text
-              className="mt-16 text-center text-[12px]"
-              style={{ color: theme.colors.textMuted }}>
-              No bookmarks yet.
-            </Text>
-          )}
-        </View>
-      </ScrollView>
+      <MasonryGrid
+        pins={pins}
+        onPressPin={handlePressPin}
+        onLongPressPin={handleLongPressPin}
+        onPressMenu={handlePressMenu}
+        headerContent={header}
+        footer={footer}
+        empty={empty}
+        refreshing={refreshing}
+        onRefresh={refresh}
+        onEndReached={loadMore}
+        bottomPadding={insets.bottom + 96}
+      />
 
       <AddDock onPress={() => setShowAdd(true)} />
 

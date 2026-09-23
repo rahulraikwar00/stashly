@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@shopify/flash-list": "2.0.2",
     "drizzle-orm": "^0.45.3",
     "expo": "^57.0.0",
     "expo-clipboard": "~57.0.2",
@@ -25,6 +26,7 @@
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.23",
     "nativewind": "latest",
     "react": "19.2.3",
     "react-dom": "19.2.3",

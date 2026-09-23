@@ -91,28 +91,6 @@ export function imageHeightFor(pin: Pin, columnWidth: number): number {
 }
 
 /**
- * Splits pins into N height-balanced columns.
- * Balancing uses the image aspect ratio (width-independent), since all
- * columns render at the same width.
- */
-export function splitIntoColumns(items: Pin[], columnCount: number): Pin[][] {
-  const columns: Pin[][] = Array.from({ length: columnCount }, () => []);
-  const heights = new Array<number>(columnCount).fill(0);
-
-  for (const pin of items) {
-    const h = pin.image ? (pin.imageRatio ?? DEFAULT_IMAGE_RATIO) : 0;
-    let idx = 0;
-    for (let i = 1; i < columnCount; i++) {
-      if (heights[i] < heights[idx]) idx = i;
-    }
-    columns[idx].push(pin);
-    heights[idx] += h;
-  }
-
-  return columns;
-}
-
-/**
  * Estimate a card's total rendered height (image + caption).
  * Used to balance the two masonry columns before a real layout pass.
  */
