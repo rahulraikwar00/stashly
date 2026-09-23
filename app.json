@@ -33,15 +33,22 @@
           },
           "android": {
             "enabled": true,
-            "singleShareMimeTypes": ["text/*"]
+            "singleShareMimeTypes": [
+              "text/*"
+            ]
           }
         }
-      ]
+      ],
+      "expo-font",
+      "expo-image-picker",
+      "expo-file-system"
     ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "bundleIdentifier": "com.myexpoapp.bookmarks",
       "supportsTablet": true
@@ -51,7 +58,37 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET"
+      ]
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "expo-sharing-extension",
+                  "bundleIdentifier": "com.myexpoapp.bookmarks.expo-sharing-extension",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.myexpoapp.bookmarks"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "81757c79-0858-4d34-a382-bb4863e7b662"
       }
-    }
+    },
+    "owner": "rahulraikwar00"
   }
 }
