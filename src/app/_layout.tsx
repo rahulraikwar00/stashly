@@ -11,6 +11,8 @@ import migrations from '@/drizzle/migrations';
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
 import { db } from '@/db/client';
 import { SettingsProvider, useSettings } from '@/hooks/useSettings';
+import { ToastProvider } from '@/components/Feedback/ToastProvider';
+import { ConfirmProvider } from '@/components/Feedback/ConfirmProvider';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -35,16 +37,20 @@ function ThemedRoot() {
 
   return (
     <ThemeProvider value={theme}>
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: theme.colors.card },
-          headerTintColor: theme.colors.text,
-          headerTitleStyle: { fontWeight: '600' },
-          headerShadowVisible: false,
-          contentStyle: { backgroundColor: theme.colors.background },
-        }}>
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-      </Stack>
+      <ToastProvider>
+        <ConfirmProvider>
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: theme.colors.card },
+              headerTintColor: theme.colors.text,
+              headerTitleStyle: { fontWeight: '600' },
+              headerShadowVisible: false,
+              contentStyle: { backgroundColor: theme.colors.background },
+            }}>
+            <Stack.Screen name="index" options={{ headerShown: false }} />
+          </Stack>
+        </ConfirmProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

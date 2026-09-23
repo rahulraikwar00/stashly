@@ -16,6 +16,7 @@ export type Pin = {
   source: string;
   favicon: string;
   image: string;
+  imageRatio: number | null;
   tags: string[];
   type: BookmarkType;
   notes: string;

@@ -14,7 +14,6 @@ import { useTheme } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -22,6 +21,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useToast } from '@/components/Feedback/ToastProvider';
 import { bookmarkToPin } from '@/utils/pin';
 import { faviconForDomain } from '@/utils/metadata';
 import { urlHashFor } from '@/utils/hash';
@@ -80,6 +80,7 @@ export function AddBookmarkPopover({
 }) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
+  const { showToast } = useToast();
 
   const { sharedPayloads, resolvedSharedPayloads, clearSharedPayloads, refreshSharePayloads } =
     useIncomingShare();
@@ -149,12 +150,12 @@ export function AddBookmarkPopover({
           resetForm();
           onClose?.();
         }
-        Alert.alert('Already saved', `This link is already in your library.`);
+        showToast('Already saved — this link is already in your library.', 'info');
         return;
       }
     } catch {
       setStatus('idle');
-      Alert.alert('Something went wrong', 'Could not check this link. Please try again.');
+      showToast('Could not check this link. Please try again.', 'error');
       return;
     }
 
@@ -163,7 +164,7 @@ export function AddBookmarkPopover({
       parsed = new URL(trimmed);
     } catch {
       setStatus('idle');
-      Alert.alert('Invalid URL', 'Please enter a valid link (starting with http:// or https://).');
+      showToast('Invalid URL — use a link starting with http:// or https://.', 'error');
       return;
     }
 
@@ -201,7 +202,7 @@ export function AddBookmarkPopover({
       saved = await saveBookmark(row);
     } catch {
       setStatus('idle');
-      Alert.alert('Could not save', 'Please try again.');
+      showToast('Could not save. Please try again.', 'error');
       return;
     }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import type { Pin } from '@/types/bookmarks';
 import { LayoutChangeEvent, View } from 'react-native';
 import { imageHeightFor, splitIntoColumns } from '@/utils/pin';
@@ -14,7 +14,37 @@ function columnsForWidth(width: number): number {
   return 2;
 }
 
-export function MasonryGrid({
+// Item-level memo: rebuilds the per-pin callbacks only when that pin or any of
+// the stable parent callbacks change, so unchanged cards skip re-rendering.
+const MasonryItem = memo(function MasonryItem({
+  pin,
+  imageHeight,
+  onPressPin,
+  onLongPressPin,
+  onPressMenu,
+}: {
+  pin: Pin;
+  imageHeight: number;
+  onPressPin?: (pin: Pin) => void;
+  onLongPressPin?: (pin: Pin) => void;
+  onPressMenu?: (pin: Pin) => void;
+}) {
+  const onPress = useCallback(() => onPressPin?.(pin), [onPressPin, pin]);
+  const onLongPress = useCallback(() => onLongPressPin?.(pin), [onLongPressPin, pin]);
+  const handlePressMenu = useCallback(() => onPressMenu?.(pin), [onPressMenu, pin]);
+
+  return (
+    <PinCard
+      pin={pin}
+      imageHeight={imageHeight}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      onPressMenu={handlePressMenu}
+    />
+  );
+});
+
+export const MasonryGrid = memo(function MasonryGrid({
   pins,
   onPressPin,
   onLongPressPin,
@@ -35,24 +65,30 @@ export function MasonryGrid({
   const width = containerWidth || fallbackWidth;
   const columnCount = columnsForWidth(width);
   const columnWidth = (width - H_PADDING - COLUMN_MARGIN * columnCount * 2) / columnCount;
-  const columns = splitIntoColumns(pins, columnCount);
+
+  const columns = useMemo(() => splitIntoColumns(pins, columnCount), [pins, columnCount]);
+  const heights = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const pin of pins) map.set(pin.id, imageHeightFor(pin, columnWidth));
+    return map;
+  }, [pins, columnWidth]);
 
   return (
     <View className="flex-row px-2" onLayout={onLayout}>
       {columns.map((items, index) => (
         <View key={index} className="flex-1" style={{ marginHorizontal: COLUMN_MARGIN }}>
           {items.map((pin) => (
-            <PinCard
+            <MasonryItem
               key={pin.id}
               pin={pin}
-              imageHeight={imageHeightFor(pin, columnWidth)}
-              onPress={() => onPressPin?.(pin)}
-              onLongPress={() => onLongPressPin?.(pin)}
-              onPressMenu={() => onPressMenu?.(pin)}
+              imageHeight={heights.get(pin.id) ?? 0}
+              onPressPin={onPressPin}
+              onLongPressPin={onLongPressPin}
+              onPressMenu={onPressMenu}
             />
           ))}
         </View>
       ))}
     </View>
   );
-}
+});

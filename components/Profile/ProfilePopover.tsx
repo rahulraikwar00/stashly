@@ -7,7 +7,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,6 +15,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useToast } from '@/components/Feedback/ToastProvider';
+import { useConfirm } from '@/components/Feedback/ConfirmProvider';
 import { useSettings } from '@/hooks/useSettings';
 import type { SettingsPatch } from '@/db/settingsService';
 import {
@@ -107,6 +108,8 @@ export function ProfilePopover({ visible, onClose }: { visible: boolean; onClose
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
   const { settings, update } = useSettings();
+  const { showToast } = useToast();
+  const confirm = useConfirm();
 
   const [form, setForm] = useState<FormFields>(() => ({
     displayName: settings.displayName ?? '',
@@ -182,24 +185,22 @@ export function ProfilePopover({ visible, onClose }: { visible: boolean; onClose
       await update(patch);
       onClose();
     } catch {
-      Alert.alert('Could not save', 'Please try again.');
+      showToast('Could not save. Please try again.', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const onReset = () => {
-    Alert.alert('Reset profile', 'Name, username, email and avatar will be cleared.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Reset',
-        style: 'destructive',
-        onPress: () => {
-          setForm((f) => ({ ...f, displayName: '', username: '', email: '', avatarUri: '' }));
-          setErrors({});
-        },
-      },
-    ]);
+  const onReset = async () => {
+    const ok = await confirm({
+      title: 'Reset profile',
+      message: 'Name, username, email and avatar will be cleared.',
+      confirmLabel: 'Reset',
+      destructive: true,
+    });
+    if (!ok) return;
+    setForm((f) => ({ ...f, displayName: '', username: '', email: '', avatarUri: '' }));
+    setErrors({});
   };
 
   const hasChanges = useMemo(() => {

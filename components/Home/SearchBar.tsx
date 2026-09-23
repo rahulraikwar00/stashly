@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 
-export function SearchBar({
+export const SearchBar = memo(function SearchBar({
   value,
   onChangeText,
   placeholder,
@@ -42,4 +42,4 @@ export function SearchBar({
       {trailing}
     </View>
   );
-}
+});

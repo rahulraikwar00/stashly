@@ -226,7 +226,7 @@ details.
 ### Decision
 
 - **Manage tab deleted.** Cards carry every action — optimistic toggles
-  (favorite, read, archive), delete (with Alert confirm), copy URL, and open link.
+  (favorite, read, archive), delete (with custom confirm dialog), copy URL, and open link.
   Archived items remain reachable via a new **Archived** status chip in the
   Library's filter row (query maps `archived: chip === 'archived'`). The app is
   now a single root screen (`src/app/index.tsx`, Library) + the

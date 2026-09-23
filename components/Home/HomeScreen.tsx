@@ -4,7 +4,6 @@ import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -14,6 +13,8 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useToast } from '@/components/Feedback/ToastProvider';
+import { useConfirm } from '@/components/Feedback/ConfirmProvider';
 import { MasonryGrid } from './MasonryGrid';
 import { SearchBar } from './SearchBar';
 import { AddDock } from './AddDock';
@@ -27,7 +28,7 @@ import { usePins } from '@/hooks/usePins';
 import { usePinMutations } from '@/hooks/usePinMutations';
 import { useSettings } from '@/hooks/useSettings';
 import type { BookmarkQuery, BookmarkType, Pin } from '@/types/bookmarks';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const NEAR_BOTTOM = 240;
@@ -37,8 +38,11 @@ type Overlay = { pin: Pin; mode: 'actions' | 'detail' } | null;
 export function HomeScreen() {
   const theme = useTheme() as AppTheme;
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
+  const confirm = useConfirm();
   const { settings } = useSettings();
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [type, setType] = useState('all');
   const [status, setStatus] = useState(settings.defaultStatus || 'all');
   const [active, setActive] = useState<Overlay>(null);
@@ -55,13 +59,13 @@ export function HomeScreen() {
 
   const query = useMemo<BookmarkQuery>(
     () => ({
-      search,
+      search: deferredSearch,
       archived: status === 'archived' ? true : false,
       type: type === 'all' ? undefined : (type as BookmarkType),
       favorite: status === 'favorites' ? true : undefined,
       unread: status === 'unread' ? true : undefined,
     }),
-    [search, type, status]
+    [deferredSearch, type, status]
   );
 
   const { pins, setPins, loading, refreshing, hasMore, error, loadMore, refresh } = usePins(query);
@@ -87,37 +91,71 @@ export function HomeScreen() {
     void refresh();
   }, [refresh]);
 
-  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-    const isNearBottom =
-      layoutMeasurement.height + contentOffset.y >= contentSize.height - NEAR_BOTTOM;
-    if (isNearBottom) loadMore();
-  };
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const isNearBottom =
+        layoutMeasurement.height + contentOffset.y >= contentSize.height - NEAR_BOTTOM;
+      if (isNearBottom) loadMore();
+    },
+    [loadMore]
+  );
+
+  const handlePressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'detail' }), []);
+  const handleLongPressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'actions' }), []);
+  const handlePressMenu = useCallback((pin: Pin) => setActive({ pin, mode: 'actions' }), []);
+
+  const trailing = useMemo(
+    () => (
+      <View className="ml-1.5 flex-row items-center">
+        {filtersActive && (
+          <View
+            className="mr-1 h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: theme.colors.primary }}
+          />
+        )}
+        <Pressable onPress={() => setShowFilters(true)} hitSlop={8}>
+          <Ionicons
+            name="filter"
+            size={16}
+            color={filtersActive ? theme.colors.primary : theme.colors.textMuted}
+          />
+        </Pressable>
+      </View>
+    ),
+    [filtersActive, theme.colors.primary, theme.colors.textMuted]
+  );
 
   const openLink = useCallback(
     (pin: Pin) => {
       if (!pin.isRead) toggleRead(pin);
       Linking.openURL(pin.url).catch(() => {
-        Alert.alert('Could not open link', 'This link could not be opened.');
+        showToast('This link could not be opened.', 'error');
       });
     },
-    [toggleRead]
+    [toggleRead, showToast]
   );
 
-  const copyUrl = useCallback((pin: Pin) => {
-    void Clipboard.setStringAsync(pin.url).then(() => {
-      Alert.alert('Copied', 'Link copied to clipboard.');
-    });
-  }, []);
+  const copyUrl = useCallback(
+    (pin: Pin) => {
+      void Clipboard.setStringAsync(pin.url).then(() => {
+        showToast('Link copied to clipboard.', 'success');
+      });
+    },
+    [showToast]
+  );
 
   const confirmDelete = useCallback(
-    (pin: Pin) => {
-      Alert.alert('Delete bookmark', `"${pin.title}" will be permanently removed.`, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => deletePin(pin) },
-      ]);
+    async (pin: Pin) => {
+      const ok = await confirm({
+        title: 'Delete bookmark',
+        message: `"${pin.title}" will be permanently removed.`,
+        confirmLabel: 'Delete',
+        destructive: true,
+      });
+      if (ok) deletePin(pin);
     },
-    [deletePin]
+    [confirm, deletePin]
   );
 
   return (
@@ -157,36 +195,16 @@ export function HomeScreen() {
           </View>
 
           <View className="mt-2.5">
-            <SearchBar
-              value={search}
-              onChangeText={setSearch}
-              trailing={
-                <View className="ml-1.5 flex-row items-center">
-                  {filtersActive && (
-                    <View
-                      className="mr-1 h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: theme.colors.primary }}
-                    />
-                  )}
-                  <Pressable onPress={() => setShowFilters(true)} hitSlop={8}>
-                    <Ionicons
-                      name="filter"
-                      size={16}
-                      color={filtersActive ? theme.colors.primary : theme.colors.textMuted}
-                    />
-                  </Pressable>
-                </View>
-              }
-            />
+            <SearchBar value={search} onChangeText={setSearch} trailing={trailing} />
           </View>
         </View>
 
         {pins.length > 0 && (
           <MasonryGrid
             pins={pins}
-            onPressPin={(pin) => setActive({ pin, mode: 'detail' })}
-            onLongPressPin={(pin) => setActive({ pin, mode: 'actions' })}
-            onPressMenu={(pin) => setActive({ pin, mode: 'actions' })}
+            onPressPin={handlePressPin}
+            onLongPressPin={handleLongPressPin}
+            onPressMenu={handlePressMenu}
           />
         )}
 

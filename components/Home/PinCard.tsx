@@ -2,12 +2,13 @@ import type { Pin } from '@/types/bookmarks';
 import { Image, Pressable, Text, View } from 'react-native';
 import { useTheme } from 'expo-router';
 import type { AppTheme } from '@/constants/theme';
+import { memo } from 'react';
 import { PinTypePill } from './PinTypePill';
 import { typeColor } from '@/utils/pinColors';
 import { formatRelativeTime } from '@/utils/pin';
 import { Ionicons } from '@expo/vector-icons';
 
-export function PinCard({
+export const PinCard = memo(function PinCard({
   pin,
   imageHeight,
   onPress,
@@ -83,4 +84,4 @@ export function PinCard({
       </View>
     </Pressable>
   );
-}
+});

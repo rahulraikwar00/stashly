@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const bookmarks = sqliteTable('bookmarks', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -44,7 +44,13 @@ export const bookmarks = sqliteTable('bookmarks', {
   updatedAt: integer('updated_at').notNull(),
   lastViewedAt: integer('last_viewed_at'), // nullable
   viewCount: integer('view_count').notNull().default(0),
-});
+}, (table) => [
+  index('bookmarks_created_at_idx').on(table.createdAt),
+  index('bookmarks_type_idx').on(table.type),
+  index('bookmarks_is_favorite_idx').on(table.isFavorite),
+  index('bookmarks_is_archived_idx').on(table.isArchived),
+  index('bookmarks_is_read_idx').on(table.isRead),
+]);
 
 // ─────────────────────────────────────────────
 // SETTINGS — single-row app configuration + profile

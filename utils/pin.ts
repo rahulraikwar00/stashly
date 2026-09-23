@@ -13,6 +13,7 @@ export function bookmarkToPin(b: Bookmark): Pin {
     source: b.siteName || b.domain || '',
     favicon: b.favicon,
     image: b.image,
+    imageRatio: getImageAspectRatio(b.image),
     tags: b.tags ? JSON.parse(b.tags) : [],
     type: (b.type ?? 'link') as BookmarkType,
     notes: b.notes,
@@ -85,7 +86,7 @@ export function getImageAspectRatio(image: string): number | null {
  */
 export function imageHeightFor(pin: Pin, columnWidth: number): number {
   if (!pin.image) return 0;
-  const ratio = getImageAspectRatio(pin.image) ?? DEFAULT_IMAGE_RATIO;
+  const ratio = pin.imageRatio ?? DEFAULT_IMAGE_RATIO;
   return Math.round(columnWidth * ratio);
 }
 
@@ -99,7 +100,7 @@ export function splitIntoColumns(items: Pin[], columnCount: number): Pin[][] {
   const heights = new Array<number>(columnCount).fill(0);
 
   for (const pin of items) {
-    const h = pin.image ? (getImageAspectRatio(pin.image) ?? DEFAULT_IMAGE_RATIO) : 0;
+    const h = pin.image ? (pin.imageRatio ?? DEFAULT_IMAGE_RATIO) : 0;
     let idx = 0;
     for (let i = 1; i < columnCount; i++) {
       if (heights[i] < heights[idx]) idx = i;
@@ -116,7 +117,7 @@ export function splitIntoColumns(items: Pin[], columnCount: number): Pin[][] {
  * Used to balance the two masonry columns before a real layout pass.
  */
 export function estimateCardHeight(pin: Pin): number {
-  const imageH = pin.image ? (getImageAspectRatio(pin.image) ?? DEFAULT_IMAGE_RATIO) : 0;
+  const imageH = pin.image ? (pin.imageRatio ?? DEFAULT_IMAGE_RATIO) : 0;
   const padding = 16; // py-2 (8 top + 8 bottom)
   const titleLines = pin.title.length > 28 ? 2 : 1;
   const titleH = titleLines * 16; // leading-4

@@ -7,5 +7,9 @@ import { DATABASE_NAME } from './database';
 // Open the database synchronously for Expo
 const expoDb = SQLite.openDatabaseSync(DATABASE_NAME);
 
+// WAL avoids read/write stalls; NORMAL keeps durability while batching fsyncs.
+expoDb.execSync('PRAGMA journal_mode = WAL;');
+expoDb.execSync('PRAGMA synchronous = NORMAL;');
+
 // Export the Drizzle instance with your schema
 export const db = drizzle(expoDb, { schema });
