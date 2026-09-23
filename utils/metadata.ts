@@ -7,32 +7,34 @@
 import Constants from 'expo-constants';
 import type { BookmarkType } from '@/types/bookmarks';
 import type { NewBookmark } from '@/db/schema';
+import { loadSettings } from '@/db/settingsService';
 import { debugLog, pushEvent } from './debug';
 import { urlHashFor } from './hash';
 
 export const METADATA_TIMEOUT_MS = 12000;
 
-// Base URL of our FastAPI metadata extractor (backend/). Resolution order:
-//   1. EXPO_PUBLIC_METADATA_EXTRACTOR_URL env var (deployed server)
-//   2. http://<dev-machine-ip>:8000 derived from Expo's hostUri (local dev)
-//   3. null → fall back to the interim third-party extraction API
-const EXTRACTOR_PATH = '/metadata';
-
-function resolveExtractorBaseUrl(): string | null {
-  const fromEnv = process.env.EXPO_PUBLIC_METADATA_EXTRACTOR_URL?.trim();
-  debugLog('extractor-url', fromEnv ?? '(unset)');
-  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+// Resolved at enrichment time, never baked in:
+//   1. settings.serverUrl (profile, user-controlled; prefilled from env on
+//      first run) — with settings.apiKey as the bearer token;
+//   2. http://<dev-machine-ip>:8000 derived from Expo's hostUri (local dev);
+//   3. null → fall back to the interim third-party extraction API.
+async function resolveExtractorConfig(): Promise<{ baseUrl: string; apiKey: string } | null> {
+  try {
+    const settings = await loadSettings();
+    const baseUrl = settings.serverUrl.trim().replace(/\/+$/, '');
+    if (baseUrl) return { baseUrl, apiKey: settings.apiKey.trim() };
+  } catch {
+    // fall through to the dev fallback below
+  }
 
   const hostUri = Constants.expoConfig?.hostUri;
   if (hostUri) {
     const host = hostUri.split(':')[0];
-    if (host) return `http://${host}:8000`;
+    if (host) return { baseUrl: `http://${host}:8000`, apiKey: '' };
   }
 
   return null;
 }
-
-export const METADATA_EXTRACTOR_URL = resolveExtractorBaseUrl();
 
 // Sites that serve a consent/JS shell (or require a crawler UA) to normal
 // browser-like clients, so a device-side direct fetch cannot extract metadata.
@@ -285,11 +287,14 @@ function mapExtractorResult(url: string, meta: ExtractorResult): Partial<NewBook
 
 type FetchOutcome = { status?: number; data?: unknown; error?: string };
 
-async function fetchJsonWithOutcome(input: string): Promise<FetchOutcome> {
+async function fetchJsonWithOutcome(
+  input: string,
+  headers?: Record<string, string>
+): Promise<FetchOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
   try {
-    const res = await fetch(input, { signal: controller.signal });
+    const res = await fetch(input, { signal: controller.signal, headers });
     if (!res.ok) return { status: res.status, error: `HTTP ${res.status}` };
     return { status: res.status, data: await res.json() };
   } catch (err) {
@@ -306,15 +311,19 @@ async function fetchJsonWithOutcome(input: string): Promise<FetchOutcome> {
 }
 
 /** Calls our FastAPI extractor (backend/). Never throws. */
+const EXTRACTOR_PATH = '/metadata';
+
 export async function fetchMetadataViaExtractor(
   url: string,
-  baseUrl: string
+  baseUrl: string,
+  apiKey = ''
 ): Promise<ExtractorResult | null> {
   const target = `${baseUrl}${EXTRACTOR_PATH}?url=${encodeURIComponent(
     url
   )}&timeout_ms=${METADATA_TIMEOUT_MS}`;
   debugLog('extractor', 'requesting', target);
-  const outcome = await fetchJsonWithOutcome(target);
+  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+  const outcome = await fetchJsonWithOutcome(target, headers);
   if (outcome.data && typeof outcome.data === 'object') {
     return outcome.data as ExtractorResult;
   }
@@ -380,9 +389,10 @@ export async function fetchExtractedMetadata(
   let meta: ExtractorResult | null = null;
   let source: ExtractSource = 'interim';
 
-  if (METADATA_EXTRACTOR_URL) {
+  const config = await resolveExtractorConfig();
+  if (config) {
     source = 'self-hosted';
-    meta = await fetchMetadataViaExtractor(url, METADATA_EXTRACTOR_URL);
+    meta = await fetchMetadataViaExtractor(url, config.baseUrl, config.apiKey);
   }
   if (!meta) {
     source = 'interim';

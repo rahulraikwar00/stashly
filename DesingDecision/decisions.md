@@ -5,6 +5,54 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
+## D-013 — Metadata extractor URL comes from Profile settings (env only prefills)
+
+**Status:** accepted  
+**Date:** 2026-09-23
+
+### Context
+
+D-012 reserved `settings.serverUrl`/`apiKey` but left them unwired; the
+extractor still resolved `EXPO_PUBLIC_METADATA_EXTRACTOR_URL` at module load.
+That env value is a machine-specific LAN IP (`http://172.26.6.148:8000`)
+that cloud EAS builds cannot bake in, and hardcoding an endpoint is exactly
+what the settings table was meant to avoid.
+
+### Decision
+
+- **Env's sole role is prefilling:** `db/settingsService.ts` seeds the initial
+  `settings.serverUrl` from `EXPO_PUBLIC_METADATA_EXTRACTOR_URL` when the row is
+  created (Env read once). After creation the app never re-reads env — the
+  value is user-controlled in Profile → Self-hosted server, and clearing it
+  stays cleared.
+- **Resolve at enrichment time** (`utils/metadata.ts`): module constant
+  `METADATA_EXTRACTOR_URL` and sync `resolveExtractorBaseUrl` removed. New
+  async `resolveExtractorConfig()` consulted by `fetchExtractedMetadata()`:
+  1. `settings.serverUrl` (+ `settings.apiKey` sent as `Authorization: Bearer`),
+  2. http://<dev-machine-ip>:8000 from Expo `hostUri` (dev fallback when the
+     field is empty),
+  3. null → interim azizbecha API.
+- **Headers plumbing:** `fetchJsonWithOutcome` / `fetchMetadataViaExtractor`
+  accept an optional headers record for the bearer token (our backend ignores
+  it today; future Chrome extension can reuse the same keys).
+- **Nothing baked into builds:** an EAS build without env works out of the box;
+  the built app configures its own extractor from Profile at runtime. No
+  key/URL in `eas.json` or git.
+
+### Why not
+
+- Baking the URL/key at build time (env in EAS profile, `app.json extra`) —
+  recompiles on every change and leaks endpoints; defeats the settings row.
+- Reading env again at runtime — would resurrect a value the user cleared.
+
+### Notes
+
+- Supersedes the extractor-URL resolution paragraphs in D-012 (reserved fields)
+  and D-006 (env → hostUri resolution); the tiered enrichment flow itself is
+  unchanged.
+
+---
+
 ## D-012 — Profile & settings (local-first), server verification documented as a spec
 
 **Status:** accepted  

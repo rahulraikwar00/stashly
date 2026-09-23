@@ -33,9 +33,7 @@
           },
           "android": {
             "enabled": true,
-            "singleShareMimeTypes": [
-              "text/*"
-            ]
+            "singleShareMimeTypes": ["text/*"]
           }
         }
       ],
@@ -46,9 +44,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "bundleIdentifier": "com.myexpoapp.bookmarks",
       "supportsTablet": true
@@ -77,9 +73,7 @@
                   "targetName": "expo-sharing-extension",
                   "bundleIdentifier": "com.myexpoapp.bookmarks.expo-sharing-extension",
                   "entitlements": {
-                    "com.apple.security.application-groups": [
-                      "group.com.myexpoapp.bookmarks"
-                    ]
+                    "com.apple.security.application-groups": ["group.com.myexpoapp.bookmarks"]
                   }
                 }
               ]

@@ -28,8 +28,13 @@ const DEFAULTS = {
   apiKey: '',
 } as const;
 
+// Prefill serverUrl from EXPO_PUBLIC_METADATA_EXTRACTOR_URL once, at row
+// creation time. After that the field is user-controlled: it is never
+// re-asserted from env, so clearing it stays cleared.
+const ENV_SERVER_URL = process.env.EXPO_PUBLIC_METADATA_EXTRACTOR_URL?.trim().replace(/\/+$/, '');
+
 export async function defaultSettings(): Promise<Settings> {
-  return { id: 1, ...DEFAULTS, updatedAt: Date.now() };
+  return { id: 1, ...DEFAULTS, serverUrl: ENV_SERVER_URL ?? '', updatedAt: Date.now() };
 }
 
 /**
