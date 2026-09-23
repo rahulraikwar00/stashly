@@ -84,20 +84,6 @@ value.trim()` (same for description). Typing exactly the auto value is
 - **Sort in "Clear" / separate filter row** — scope vs order are different
   axes; Clear resets scope (type/status/tag), sort is a view preference.
 
-- **Bonus: same D-014 collapsible header, now a layout row (2026-09-24).** The
-  D-014 overlay implementation (absolute header + `contentContainerStyle.paddingTop`
-  compensation) had two stacking side effects: the pull-to-refresh spinner
-  rendered at the top of the full-screen list frame _behind_ the opaque header,
-  and the fixed top padding left a permanent blank strip when collapsed. Fixing
-  refresh by insetting the frame exposed the blank-strip bug. We removed the
-  overlay entirely: the header is a real flex row above the list whose `height`
-  and inner `translateY` both spring on the same `progress` (hybrid glide) —
-  contents glide up exactly as before while the row shrinks in sync, so the
-  list frame grows to fill the vacated space. No backdrop, no blank strip, and
-  the spinner always sits at the list's real top. This animates a _sibling
-  layout_ row, not the scroll content, so D-014's rejection of animating
-  `paddingTop` still stands.
-
 ---
 
 ## D-014 — Snappy search/filter pipeline + collapsible header

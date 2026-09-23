@@ -134,21 +134,8 @@ export const MasonryGrid = memo(function MasonryGrid({
     },
   });
 
-  // Hybrid collapse: the header row's height and its contents translate up by
-  // the same spring amount, so the header glides away exactly like the old
-  // overlay while its row simultaneously shrinks — no backdrop or blank strip
-  // is left behind and the list frame expands to fill the vacated space.
-  const headerSlideStyle = useAnimatedStyle(() => ({
+  const headerOverlayStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: withSpring(-progress.value * headerHeight, HEADER_SPRING) }],
-  }));
-
-  // Height undefined until measured: the first frame lays out naturally at its
-  // intrinsic height, and the measured height drives the collapse afterwards.
-  const headerCollapseStyle = useAnimatedStyle(() => ({
-    height:
-      headerHeight === 0
-        ? undefined
-        : withSpring(headerHeight * (1 - progress.value), HEADER_SPRING),
   }));
 
   const fallbackWidth = 180;
@@ -188,19 +175,6 @@ export const MasonryGrid = memo(function MasonryGrid({
 
   return (
     <View className="flex-1" onLayout={onLayout}>
-      {/* Header is a real layout row above the list, not an overlay: collapse
-          translates its contents up while the row height shrinks in sync, so
-          nothing (backdrop/blank strip) is left pinned on top and the list
-          frame grows to fill the space. Pull-to-refresh always sits at the
-          list's real top. */}
-      {headerContent != null && (
-        <Animated.View
-          style={[{ overflow: 'hidden' }, headerCollapseStyle]}
-          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
-          <Animated.View style={headerSlideStyle}>{headerContent}</Animated.View>
-        </Animated.View>
-      )}
-
       <AnimatedFlashList
         key={columnCount}
         className="flex-1"
@@ -216,6 +190,7 @@ export const MasonryGrid = memo(function MasonryGrid({
         ListEmptyComponent={empty}
         contentContainerStyle={{
           paddingHorizontal: GRID_EDGE_PADDING,
+          paddingTop: headerHeight,
           paddingBottom: bottomPadding,
         }}
         onEndReached={onEndReached}
@@ -233,6 +208,28 @@ export const MasonryGrid = memo(function MasonryGrid({
         alwaysBounceVertical
         keyboardShouldPersistTaps="handled"
       />
+
+      {/* Collapsed header: overlaid, springs away when content scrolls up and
+          back the moment content scrolls down. box-none keeps card taps alive
+          under any part of the header that isn't an interactive child. */}
+      {headerContent != null && (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            headerOverlayStyle,
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              zIndex: 2,
+              backgroundColor: theme.colors.background,
+            },
+          ]}
+          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
+          {headerContent}
+        </Animated.View>
+      )}
     </View>
   );
 });
