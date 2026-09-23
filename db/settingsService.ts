@@ -28,9 +28,12 @@ const DEFAULTS = {
   apiKey: '',
 } as const;
 
-// Prefill serverUrl from EXPO_PUBLIC_METADATA_EXTRACTOR_URL once, at row
-// creation time. After that the field is user-controlled: it is never
-// re-asserted from env, so clearing it stays cleared.
+// Seeds serverUrl from EXPO_PUBLIC_METADATA_EXTRACTOR_URL as a default. The
+// value is applied at row creation and (see loadSettings) backfilled whenever
+// the stored field is empty — env acts as the default extractor, which the
+// user can change and save over. In dev builds where env is always present,
+// clearing the field + restarting re-asserts it; builds without env leave it
+// user-controlled.
 const ENV_SERVER_URL = process.env.EXPO_PUBLIC_METADATA_EXTRACTOR_URL?.trim().replace(/\/+$/, '');
 
 export async function defaultSettings(): Promise<Settings> {
@@ -43,7 +46,20 @@ export async function defaultSettings(): Promise<Settings> {
  */
 export async function loadSettings(): Promise<Settings> {
   const [row] = await db.select().from(settings).where(eq(settings.id, 1)).limit(1);
-  if (row) return row;
+  if (row) {
+    // Backfill the extractor URL from env when the stored value is empty (e.g.
+    // rows created before the env prefill existed). Only touches server_url so
+    // the user's other saved data is never disturbed.
+    if (!row.serverUrl.trim() && ENV_SERVER_URL) {
+      const [updated] = await db
+        .update(settings)
+        .set({ serverUrl: ENV_SERVER_URL })
+        .where(eq(settings.id, 1))
+        .returning();
+      return updated!;
+    }
+    return row;
+  }
 
   const defaults = await defaultSettings();
   const [created] = await db.insert(settings).values(defaults).returning();

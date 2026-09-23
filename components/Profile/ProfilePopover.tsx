@@ -268,7 +268,7 @@ export function ProfilePopover({ visible, onClose }: { visible: boolean; onClose
 
   return (
     <PopupCard visible={visible} onClose={onClose} maxWidth={340}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View className="flex-row items-center justify-between px-4 pt-3.5">
           <Text className="text-[14px] font-bold" style={{ color: c.text }}>
             Profile & settings
@@ -284,7 +284,8 @@ export function ProfilePopover({ visible, onClose }: { visible: boolean; onClose
           className="px-4"
           showsVerticalScrollIndicator={false}
           bounces={false}
-          style={{ maxHeight: 480 }}>
+          keyboardShouldPersistTaps="handled"
+          style={{ maxHeight: 480, flexShrink: 1 }}>
           {/* ‒ Avatar ‒ */}
           <View className="mt-3 items-center">
             <View>

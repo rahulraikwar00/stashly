@@ -19,10 +19,15 @@ export function PopupCard({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 items-center justify-center px-6" onPress={onClose}>
-        <View className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
+      <View className="flex-1 items-center justify-center px-6">
+        {/* Backdrop closes on tap. Sibling of the card (not a parent) so the
+            card's ScrollView keeps the touch responder while scrolling. */}
         <Pressable
-          onPress={() => {}}
+          className="absolute inset-0"
+          onPress={onClose}
+          style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+        />
+        <View
           className="w-full overflow-hidden rounded-3xl"
           style={{
             backgroundColor: c.surface,
@@ -30,6 +35,7 @@ export function PopupCard({
             borderColor: c.border,
             maxWidth,
             maxHeight: '85%',
+            flexShrink: 1,
             elevation: 12,
             shadowColor: '#000',
             shadowOpacity: 0.35,
@@ -37,8 +43,8 @@ export function PopupCard({
             shadowOffset: { width: 0, height: 8 },
           }}>
           {children}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

@@ -50,6 +50,12 @@ what the settings table was meant to avoid.
 - Supersedes the extractor-URL resolution paragraphs in D-012 (reserved fields)
   and D-006 (env → hostUri resolution); the tiered enrichment flow itself is
   unchanged.
+- **Amended (2026-09-23, user feedback):** env is applied not only at row
+  creation but also **backfilled whenever the stored `serverUrl` is empty**
+  (`loadSettings`). Env acts as the default value the user can change and save
+  over. Consequence: in dev builds (env always present) clearing the field and
+  restarting re-asserts the env URL; builds without env leave it fully
+  user-controlled.
 
 ---
 

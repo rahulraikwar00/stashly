@@ -34,7 +34,7 @@ export function PinDetailPopover({
 
   return (
     <PopupCard visible={visible} onClose={onClose} maxWidth={340}>
-      <View className="relative">
+      <View className="relative" style={{ flexShrink: 1 }}>
         <Pressable
           onPress={onClose}
           hitSlop={8}
@@ -43,7 +43,7 @@ export function PinDetailPopover({
           <Ionicons name="close" size={16} color="#FFFFFF" />
         </Pressable>
 
-        <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+        <ScrollView showsVerticalScrollIndicator={false} bounces={false} style={{ flexShrink: 1 }}>
           {pin.image ? (
             <View className="relative">
               <Image source={{ uri: pin.image }} className="h-[180px] w-full" resizeMode="cover" />
