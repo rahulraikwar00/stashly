@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { UserAvatar } from '@/components/Profile/UserAvatar';
 import { PopupCard } from '@/components/Pin/PopupCard';
 import type { AppTheme } from '@/constants/theme';
@@ -8,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -376,6 +378,43 @@ export function ProfilePopover({
       setSyncBusy(false);
     }
   }, [code, update, showToast]);
+
+  // ── Waiting-phase helpers: copy the code / full message, open the DM ──
+
+  const onOpenDm = useCallback(async () => {
+    const target = `/link ${code || localCode}`;
+    try {
+      await Clipboard.setStringAsync(target);
+      showToast('Message copied — paste it in the chat.', 'info');
+    } catch {
+      // clipboard failure shouldn't block opening the DM
+    }
+    try {
+      await Linking.openURL(`https://ig.me/m/${IG_HANDLE}`);
+    } catch {
+      showToast('Could not open Instagram.', 'error');
+    }
+  }, [code, localCode, showToast]);
+
+  const onCopyCode = useCallback(async () => {
+    const target = code || localCode;
+    if (!target) return;
+    try {
+      await Clipboard.setStringAsync(target);
+      showToast('Code copied.', 'info');
+    } catch {
+      showToast('Could not copy the code.', 'error');
+    }
+  }, [code, localCode, showToast]);
+
+  const onCopyFull = useCallback(async () => {
+    try {
+      await Clipboard.setStringAsync(`/link ${code || localCode}`);
+      showToast('/link message copied.', 'info');
+    } catch {
+      showToast('Could not copy the message.', 'error');
+    }
+  }, [code, localCode, showToast]);
 
   const setField = (field: keyof FormFields, value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
@@ -763,18 +802,58 @@ export function ProfilePopover({
                     style={{ color: c.primary, letterSpacing: 8 }}>
                     {code || localCode}
                   </Text>
-                  <Text className="mt-0.5 text-center text-[10px]" style={{ color: c.textMuted }}>
-                    Exactly: /link {code}
-                  </Text>
+                  <Pressable
+                    onPress={onOpenDm}
+                    className="mt-2 flex-row items-center justify-center rounded-2xl py-2.5"
+                    style={{ backgroundColor: c.primary }}>
+                    <Ionicons
+                      name="paper-plane-outline"
+                      size={15}
+                      color="#FFFFFF"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text className="text-[12px] font-semibold" style={{ color: '#FFFFFF' }}>
+                      Open Instagram DM
+                    </Text>
+                  </Pressable>
+                  <View className="mt-2 flex-row">
+                    <Pressable
+                      onPress={onCopyFull}
+                      className="flex-1 flex-row items-center justify-center rounded-xl py-2"
+                      style={{ backgroundColor: c.surfaceAlt }}>
+                      <Ionicons
+                        name="copy-outline"
+                        size={13}
+                        color={c.textMuted}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text className="text-[11px] font-semibold" style={{ color: c.textMuted }}>
+                        Copy /link message
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={onCopyCode}
+                      className="ml-2 flex-1 flex-row items-center justify-center rounded-xl py-2"
+                      style={{ backgroundColor: c.surfaceAlt }}>
+                      <Ionicons
+                        name="clipboard-outline"
+                        size={13}
+                        color={c.textMuted}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text className="text-[11px] font-semibold" style={{ color: c.textMuted }}>
+                        Copy code
+                      </Text>
+                    </Pressable>
+                  </View>
                   <Text className="mt-1 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
-                    1. Send the message above from the account to link (must not be the official
-                    account).
+                    The message is copied — open the chat above and hit send (from the account to
+                    link, not this one).
                   </Text>
                   <Text
                     className="mt-0.5 text-[10px] leading-[14px]"
                     style={{ color: c.textFaint }}>
-                    2. It auto-syncs here when the message is received (~20s, or pull to refresh
-                    after the toast).
+                    It auto-syncs here once received (~20s, or pull to refresh after the toast).
                   </Text>
                   <Text className="mt-1 text-[11px] font-semibold" style={{ color: c.textMuted }}>
                     {countdownLabel(expiresAt)}

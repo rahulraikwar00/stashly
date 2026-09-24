@@ -145,6 +145,13 @@ function mapDmToRow(res: IGBookmark, now: number): NewBookmark {
  * (`onConflictDoNothing` on `urlHash`), so the same reel saved both ways is
  * one row. Items without a usable http(s) URL are counted as skipped and never
  * inserted.
+ *
+ * After the batch insert, every inserted bookmark (and any previously-saved
+ * bare row that conflicts on the same URL) is enriched through the regular
+ * metadata path (`enrichBookmark` — direct fetch → self-hosted extractor), so
+ * DM cards get a real title + thumbnail like pasted ones. Enrichment is
+ * awaited and parallel so the first grid paint is fully populated; failures
+ * are swallowed — a bare card is always better than a failed sync.
  */
 export async function insertDmBookmarks(
   items: IGBookmark[]
@@ -169,7 +176,34 @@ export async function insertDmBookmarks(
 
   const inserted = saved.length;
   pushEvent('sync', `dm inserted=${inserted} skipped=${skipped}`);
+
+  const targets = await collectEnrichTargets(saved, rows);
+  await Promise.allSettled(targets.map((t) => enrichBookmark(t.id, t.url)));
+  pushEvent('sync', `dm enriched=${targets.length}`);
+
   return { inserted, skipped };
+}
+
+/**
+ * Rows to enrich after a DM insert: every freshly-inserted bookmark plus any
+ * already-saved row that backed off (conflict) and still shows as a bare card
+ * — this heals reels synced before frontend enrichment existed.
+ */
+async function collectEnrichTargets(
+  saved: Bookmark[],
+  rows: NewBookmark[]
+): Promise<Array<{ id: number; url: string }>> {
+  const targets: Array<{ id: number; url: string }> = saved.map((s) => ({ id: s.id, url: s.url }));
+  const insertedHashes = new Set(saved.map((s) => s.urlHash));
+
+  for (const row of rows) {
+    if (insertedHashes.has(row.urlHash)) continue;
+    const existing = await getBookmarkByUrlHash(row.urlHash);
+    if (existing && !existing.title && !existing.image) {
+      targets.push({ id: existing.id, url: existing.url });
+    }
+  }
+  return targets;
 }
 
 /**
