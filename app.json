@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "my-expo-app",
-    "slug": "my-expo-app",
+    "name": "Stashly",
+    "slug": "stashly",
     "version": "1.0.0",
-    "scheme": "my-expo-app",
+    "scheme": "stashly",
     "web": {
       "favicon": "./assets/favicon.png"
     },
