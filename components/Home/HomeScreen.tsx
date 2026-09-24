@@ -19,6 +19,7 @@ import { usePins } from '@/hooks/usePins';
 import { usePinMutations, type EditPinPatch } from '@/hooks/usePinMutations';
 import { useSettings } from '@/hooks/useSettings';
 import type { BookmarkQuery, BookmarkType, Pin, SortKey } from '@/types/bookmarks';
+import { syncNowIfLinked } from '@/utils/igDm';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -108,6 +109,20 @@ export function HomeScreen() {
   const handleSaved = useCallback(() => {
     void refresh();
   }, [refresh]);
+
+  // Pull-to-refresh = grid refresh + a silent Instagram sync in parallel. If
+  // the sync inserted new bookmarks, refetch once more so they show up, then
+  // toast the count. Errors are swallowed here — it's a background nicety.
+  const handleRefresh = useCallback(async () => {
+    const [syncResult] = await Promise.all([syncNowIfLinked(), refresh()]);
+    if (syncResult && syncResult.inserted > 0) {
+      await refresh();
+      showToast(
+        `Imported ${syncResult.inserted} bookmark${syncResult.inserted === 1 ? '' : 's'} from Instagram.`,
+        'success'
+      );
+    }
+  }, [refresh, showToast]);
 
   const handlePressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'detail' }), []);
   const handleLongPressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'actions' }), []);
@@ -246,7 +261,7 @@ export function HomeScreen() {
         footer={footer}
         empty={empty}
         refreshing={refreshing}
-        onRefresh={refresh}
+        onRefresh={handleRefresh}
         onEndReached={loadMore}
         bottomPadding={insets.bottom + 96}
       />

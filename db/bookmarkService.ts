@@ -1,6 +1,7 @@
 // db/bookmarkService.ts
 import { and, asc, desc, eq, like, or, sql } from 'drizzle-orm';
 import type { BookmarkQuery } from '@/types/bookmarks';
+import type { IGBookmark } from '@/types/ig';
 import { db } from './client';
 import { bookmarks, type Bookmark, type NewBookmark } from './schema';
 import {
@@ -9,6 +10,7 @@ import {
   isEmptyMetadata,
   isWalledDomain,
 } from '@/utils/metadata';
+import { urlHashFor } from '@/utils/hash';
 import { pushEvent } from '@/utils/debug';
 
 /**
@@ -92,6 +94,82 @@ export async function saveBookmark(bookmark: NewBookmark): Promise<Bookmark> {
 export async function saveBookmarks(items: NewBookmark[]): Promise<Bookmark[]> {
   if (items.length === 0) return [];
   return db.insert(bookmarks).values(items).returning();
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Maps a backend DM bookmark (docs/03 §3.3 wire shape) to a `NewBookmark` row.
+ * urlHash is recomputed client-side with the app's own djb2 (`urlHashFor`) so
+ * dedup is guaranteed identical to the paste path regardless of the backend's
+ * hash implementation. Sender order wins: createdAt = the DM timestamp.
+ */
+function mapDmToRow(res: IGBookmark, now: number): NewBookmark {
+  return {
+    url: res.url,
+    urlHash: urlHashFor(res.url),
+    domain: res.domain ?? '',
+    path: res.path ?? '',
+    title: res.title ?? '',
+    description: res.description ?? '',
+    image: res.image ?? '',
+    favicon: res.favicon ?? '',
+    siteName: res.siteName ?? '',
+    author: res.author ?? '',
+    publishedAt: res.publishedAt ?? null,
+    language: res.language ?? '',
+    type: res.type ?? 'link',
+    tags: JSON.stringify(res.tags ?? []),
+    notes: '',
+    isFavorite: false,
+    isArchived: false,
+    isRead: false,
+    customTitle: res.customTitle ?? '',
+    customDescription: res.customDescription ?? '',
+    createdAt: res.timestamp || now,
+    updatedAt: now,
+    lastViewedAt: null,
+    viewCount: 0,
+  };
+}
+
+/**
+ * Inserts backend DM bookmarks through the same dedupe path as paste saves
+ * (`onConflictDoNothing` on `urlHash`), so the same reel saved both ways is
+ * one row. Items without a usable http(s) URL are counted as skipped and never
+ * inserted.
+ */
+export async function insertDmBookmarks(
+  items: IGBookmark[]
+): Promise<{ inserted: number; skipped: number }> {
+  const now = Date.now();
+  const rows: NewBookmark[] = [];
+  let skipped = 0;
+  for (const res of items) {
+    if (!res || !isHttpUrl(res.url)) {
+      skipped += 1;
+      continue;
+    }
+    rows.push(mapDmToRow(res, now));
+  }
+  if (rows.length === 0) return { inserted: 0, skipped };
+
+  const saved = await db
+    .insert(bookmarks)
+    .values(rows)
+    .onConflictDoNothing({ target: bookmarks.urlHash })
+    .returning();
+
+  const inserted = saved.length;
+  pushEvent('sync', `dm inserted=${inserted} skipped=${skipped}`);
+  return { inserted, skipped };
 }
 
 /**

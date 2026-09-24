@@ -14,6 +14,7 @@ export type SettingsPatch = Partial<
     | 'defaultStatus'
     | 'serverUrl'
     | 'apiKey'
+    | 'igCode'
   >
 >;
 
@@ -26,6 +27,7 @@ const DEFAULTS = {
   defaultStatus: 'all',
   serverUrl: '',
   apiKey: '',
+  igCode: '',
 } as const;
 
 // Seeds serverUrl from EXPO_PUBLIC_METADATA_EXTRACTOR_URL as a default. The

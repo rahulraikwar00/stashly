@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `ig_code` text DEFAULT '' NOT NULL;

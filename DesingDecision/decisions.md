@@ -5,6 +5,146 @@ Status is one of: `proposed` | `accepted` | `superseded`.
 
 ---
 
+## D-017 — App-side sync wiring (live-fetch first, background fetch later)
+
+**Status:** accepted  
+**Date:** 2026-09-24  
+**Supersedes:** the "header icon + serverUrl-only metadata" calls from D-016's
+frontend notes. Each app feature still calls `/metadata` directly with the
+profile's `serverUrl`/`apiKey` (D-013), unchanged.
+
+### Context
+
+D-016 delivered the backend relay; the app side was unimplemented. The options
+discussed were: (a) pull-to-refresh only, (b) a true background fetch using
+`expo-background-task`, and (c) a periodic in-app timer. User concerns: many
+users hammering the backend, and no native rebuild in this pass. A "how often do
+you want to sync" UI was treated as a premature product question.
+
+### Decision
+
+- **Entry point = Profile panel** ("Instagram sync" group), not a header icon,
+  so no new chrome is added to the board.
+- **Code storage = a new `ig_code` column** on `settings` (SQLite migration
+  0003), written by the connect flow; the profile's existing `serverUrl`/`apiKey`
+  stay the connection config for the relay.
+- **Fetch model = live pulls, but sync-on-use:** the app never holds a timer or
+  background task in this pass. Pull-to-refresh runs a *silent* sync in parallel
+  with the grid refetch and only refetches + toasts when items were actually
+  inserted. Profile "Sync now" is the explicit/on-demand path.
+- **Backend load guard = deferred buffered mailbox:** to stop N devices pulling
+  `instagrapi` per refresh, the backend will gain a cache (`MailboxStore`); the
+  poller ingests each bound thread's new items once, and `/messages*` is served
+  from that. Deferred, not dropped.
+- **Background fetch = deferred second pass:** `expo-background-task` +
+  `expo-background-fetch` (~57.0.19) require config plugins + a native rebuild;
+  blocked on the mailbox first so remote pulls become cheap.
+- **IG handle is hardcoded** in `utils/igDm.ts` (`IG_HANDLE`); no `/health`
+  endpoint change. Currently a placeholder to be filled by the operator.
+- **No public-preview fallback:** the DM path must never call the third-party
+  link-preview API — matching WP-B's "no Facebook-public-API nests" rule.
+
+### Consequences
+
+If the backend is unreachable or unset, pull-to-refresh degrades to the plain
+grid refetch (errors swallowed, no alert). Until the mailbox lands, each pull
+hits the relay directly; the run-lock in `syncNow` prevents overlapping syncs.
+Registration is first-touch-wins and 10-min TTL (D-016) unchanged.
+
+---
+
+## D-016 — Structured multi-platform backend with Instagram linking flow
+
+**Status:** accepted  
+**Date:** 2026-09-24
+
+### Context
+
+The backend (`backend/`, sibling folder) was a monolithic 860-line `main.py` of
+which ~415 lines were dead commented-out iterations (old metadata app, older DM
+watcher). It was **single-tenant with zero identity**: `GET /messages/links`
+relayed new messages from *every* thread to *any* caller that could reach the
+server. Its response shape didn't match the app (`{id, content, caption,
+media_type, shortcode, username, timestamp}` in seconds, 15s caption window, no
+tags), the `/metadata` extractor routes had been removed while the app still
+calls them, `requirements.txt` was missing the deps the live code imports
+(`instagrapi`, `python-dotenv`), and `.env`/`session.json`/`seen_messages.json`
+were not gitignored. We also want to be able to add other platforms
+(Telegram/Discord/Slack) later without redesigning the core.
+
+### Decision
+
+- **Linking/auth model (per-user relay):** the app registers a 6-digit code via
+  `POST /auth/codes` (TTL ~10 min, no other binding). The user DMs the official
+  account `@…` with `/link <code>`. A poller (`LINK_SCAN_SECONDS`, default 20s)
+  scans the official account's threads for that directive and **binds
+  first-touch-wins** `code → thread_id/user_id/username` in `links.json`; the
+  code expires on bind, and a *second* thread that sends the same code is
+  rejected. DM endpoints authenticate with `X-API-Key: <code>` (or
+  `Authorization: Bearer <code>`).
+- **Unregistered DMs are invisible:** the poller reads message text **only** to
+  detect a `/link <code>` directive. Anything else in an unlinked thread is
+  never relayed, never persisted, and never advances seen-state — so reels
+  forwarded *before* linking are still delivered fresh once the code binds.
+  Bad/unregistered `/link` attempts are ignored silently (no auto-reply).
+- **Multi-tenant by construction:** `seen_messages.json` stays keyed per
+  thread, so each code's consumption is isolated from every other code.
+- **Platform independence:** `connectors/base.py` defines a `Connector` ABC plus
+  normalized `InboundItem`/`LinkDirective`; `connectors/instagram.py` is the
+  first implementation. Shared `enrich.py` normalizes `InboundItem →
+  BookmarkResponse`, so a Telegram/Discord/Slack connector only implements the
+  small ABC and reuses every router unchanged.
+- **Contract alignment (app-aligned, not spec-literal):**
+  - `urlHash` is **djb2** ported from `utils/hash.ts` `urlHashFor`
+    (trim + lowercase + djb2 hex), *not* the spec's SHA-256 — dedup across the
+    paste and DM tiers depends on the two sides using the identical algorithm.
+  - `type` ∈ `{video, image, link}` (`reel`/`igtv`→`video`, `post`→`image`);
+    the raw media type stays in `mediaType` so it fits the app's `BookmarkType`
+    union.
+  - Timestamps in **ms**; text fields are `""`, never `null`; `description`
+    stays `""` (sender words → `customDescription`); `tags` is a **real JSON
+    array** (hashtags extracted from `customDescription`); caption window
+    `15s → 120s` with concatenation of multiple adjacent texts; claimed texts
+    never leak as their own items.
+  - `image`/`author` come from `xma_share` (`preview_url`,
+    `header_title_text`).
+- **Structure:** `main.py` (factory, CORS, startup, poller) + `config.py`,
+  `models.py`, `auth.py` (code store + `require_code` dependency), `guards.py`,
+  `extract.py`, `enrich.py`, `poller.py`, `connectors/`, `routers/`
+  (`health`, `auth`, `messages`, `metadata`, `debug`). The ~415 dead lines are
+  deleted; `GET /metadata` is restored; `requirements.txt` gains `instagrapi`
+  + `python-dotenv`; `.gitignore` gains `.env`, `session.json`,
+  `links.json`, `seen_messages.json`; `.env.example` + README rewritten.
+
+### Why not
+
+- **One shared API key for all users** — no per-user isolation and no way to
+  tell whose DMs to relay.
+- **Only server-issued codes without a DM proof** — the `/link <code>` DM is
+  the proof of Instagram ownership; without it a leaked code would hand a
+  mailbox to whoever knows the number.
+- **Keeping the single-tenant passthrough** — leaks every thread's content to
+  any caller.
+- **SHA-256 `urlHash` per spec** — forks the hash away from the app and breaks
+  "same reel saved free + connected = one row".
+- **Fetch-on-demand only for link discovery** — a brand-new user hasn't called
+  the API yet, so nothing would trigger a scan; a cheap ~20s poll finds
+  bindings without the app.
+- **Auto-replying on bad `/link`** — friendlier onboarding but sends
+  unsolicited messages from the official account; silent-ignore keeps the
+  poller minimal.
+
+### Notes
+
+- The 6-digit code is a *channel token*; binding requires that thread's
+  `/link <code>`. One code ↔ one thread; a user may create several codes.
+- Supersedes the single-tenant DM flow implied by `docs/02-Architecture.md`
+  §2.3 and the stale "backend response ≠ dream row" gap; the restored
+  `/metadata` route formalizes D-006's extractor back into the same service.
+  The `Connector` ABC is the extension point for future platforms.
+
+---
+
 ## D-015 — Library features: edit, tags, backup, sort, share-out
 
 **Status:** accepted  

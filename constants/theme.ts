@@ -168,10 +168,7 @@
 //   },
 // };
 
-
-
-
-//update theme which is good 
+//update theme which is good
 // import { DarkTheme, DefaultTheme, type Theme } from 'expo-router';
 
 // // ─────────────────────────────────────────────
@@ -249,9 +246,6 @@
 //     link: '#3E6FBF',
 //   },
 // };
-
-
-
 
 import { DarkTheme, DefaultTheme, type Theme } from 'expo-router';
 

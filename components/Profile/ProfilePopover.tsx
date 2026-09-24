@@ -4,7 +4,7 @@ import { PopupCard } from '@/components/Pin/PopupCard';
 import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -20,6 +20,16 @@ import { useConfirm } from '@/components/Feedback/ConfirmProvider';
 import { useSettings } from '@/hooks/useSettings';
 import type { SettingsPatch } from '@/db/settingsService';
 import { importBookmarksJson, shareBookmarksExport } from '@/db/backup';
+import { resolveBackendConfig, checkServerHealth, type ServerStatus } from '@/utils/backendConfig';
+import {
+  IG_HANDLE,
+  IGSyncError,
+  generateAndRegisterCode,
+  getCodeStatus,
+  syncNow,
+  unlinkCode,
+  type RegisterResult,
+} from '@/utils/igDm';
 import {
   DEFAULT_STATUS_CHOICES,
   THEME_CHOICES,
@@ -67,6 +77,15 @@ function FieldError({ message }: { message?: string }) {
       {message}
     </Text>
   );
+}
+
+function countdownLabel(expiresAt: number): string {
+  if (!expiresAt) return '';
+  const diff = expiresAt - Date.now();
+  if (diff <= 0) return 'Code expired — generate a new one.';
+  const m = Math.floor(diff / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return `Code valid for ${m}m ${s.toString().padStart(2, '0')}s`;
 }
 
 function ChoiceChips<T extends string>({
@@ -141,6 +160,222 @@ export function ProfilePopover({
   const [backupText, setBackupText] = useState('');
   const [backupBusy, setBackupBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // ── Instagram sync state machine ────────────────────────────────────
+  // 'idle' | 'waiting' (code registered, awaiting /link) | 'linked' |
+  // 'unknown' (expired/never registered) | 'error'
+  const [showSync, setShowSync] = useState(false);
+  const [localCode, setLocalCode] = useState('');
+  const [syncPhase, setSyncPhase] = useState<'idle' | 'waiting' | 'linked' | 'unknown' | 'error'>(
+    'idle'
+  );
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncError, setSyncError] = useState('');
+  const [linkedUsername, setLinkedUsername] = useState('');
+  const [expiresAt, setExpiresAt] = useState(0);
+  const [syncChecking, setSyncChecking] = useState(false);
+  const checkBusyRef = useRef(false);
+
+  const code = settings.igCode?.trim() ?? '';
+
+  const runCheckStatus = useCallback(async (codeToCheck: string) => {
+    if (checkBusyRef.current) return;
+    checkBusyRef.current = true;
+    setSyncChecking(true);
+    try {
+      const config = await resolveBackendConfig();
+      if (!config) {
+        setSyncPhase('error');
+        setSyncError('Server not reachable — set a Self-hosted server URL first.');
+        return;
+      }
+      const st = await getCodeStatus(config.baseUrl, codeToCheck);
+      if (st === null) {
+        setSyncPhase('unknown');
+        return;
+      }
+      if (st.linked) {
+        setSyncPhase('linked');
+        setLinkedUsername(st.username);
+        return;
+      }
+      if (st.status === 'expired') {
+        setSyncPhase('unknown');
+        return;
+      }
+      setSyncPhase('waiting');
+      if (st.expiresAt) setExpiresAt(st.expiresAt);
+    } catch (err) {
+      setSyncPhase('error');
+      setSyncError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSyncChecking(false);
+      checkBusyRef.current = false;
+    }
+  }, []);
+
+  const onRetryCheck = useCallback(() => {
+    if (!code) {
+      setSyncPhase('idle');
+      return;
+    }
+    void runCheckStatus(code);
+  }, [code, runCheckStatus]);
+
+  // Re-evaluate the connection every time the group opens or the code changes.
+  useEffect(() => {
+    if (!visible || !showSync || !code) return;
+    const t = setTimeout(() => {
+      void runCheckStatus(code);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [visible, showSync, code, runCheckStatus]);
+
+  // While waiting for the user to DM /link <code>, poll ~5s until linked/expired.
+  useEffect(() => {
+    if (!visible || !showSync || syncPhase !== 'waiting') return;
+    const timer = setInterval(() => {
+      void runCheckStatus(code);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [visible, showSync, syncPhase, code, runCheckStatus]);
+
+  // ── Server reachability indicator ──────────────────────────────────
+  // Pings the configured backend's /health when the popover opens (and after
+  // the user saves a new Server URL / API key). On-demand only — no polling.
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('unset');
+  const serverCheckRef = useRef(false);
+
+  const runServerCheck = useCallback(async () => {
+    if (serverCheckRef.current) return;
+    serverCheckRef.current = true;
+    setServerStatus('checking');
+    try {
+      setServerStatus(await checkServerHealth());
+    } finally {
+      serverCheckRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    const t = setTimeout(() => {
+      void runServerCheck();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [visible, settings.serverUrl, settings.apiKey, runServerCheck]);
+
+  const serverLabel: Record<ServerStatus, string> = {
+    online: 'Server online',
+    offline: 'Server unreachable',
+    unset: 'Server not set',
+    checking: 'Checking…',
+  };
+
+  const serverDotColor: Record<ServerStatus, string> = {
+    online: '#22C55E',
+    offline: '#EF4444',
+    unset: '#9CA3AF',
+    checking: '#F59E0B',
+  };
+
+  const onConnect = useCallback(async () => {
+    if (syncBusy) return;
+    const config = await resolveBackendConfig();
+    if (!config) {
+      showToast('Set your server URL in Self-hosted server first.', 'error');
+      return;
+    }
+    setSyncBusy(true);
+    setSyncError('');
+    try {
+      let registered: RegisterResult;
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          registered = await generateAndRegisterCode(config.baseUrl);
+          break;
+        } catch (err) {
+          if (err instanceof IGSyncError && err.kind === 'conflict' && attempt < 4) continue;
+          throw err;
+        }
+      }
+      await update({ igCode: registered.code });
+      setLocalCode(registered.code);
+      if (registered.expiresAt) setExpiresAt(registered.expiresAt);
+      setSyncPhase('waiting');
+    } catch (err) {
+      setSyncPhase('error');
+      setSyncError(err instanceof Error ? err.message : String(err));
+      showToast(err instanceof Error ? err.message : 'Could not start linking.', 'error');
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [syncBusy, update, showToast]);
+
+  const onSyncNow = useCallback(async () => {
+    if (syncBusy || !code) return;
+    const config = await resolveBackendConfig();
+    if (!config) {
+      showToast('Set your server URL in Self-hosted server first.', 'error');
+      return;
+    }
+    setSyncBusy(true);
+    try {
+      const result = await syncNow(config.baseUrl, code);
+      if (result === null) {
+        showToast('Sync already running — give it a moment.', 'info');
+        return;
+      }
+      const message =
+        result.inserted > 0
+          ? `Imported ${result.inserted} bookmark${result.inserted === 1 ? '' : 's'}${
+              result.skipped > 0 ? ` (${result.skipped} duplicates skipped)` : ''
+            }.`
+          : 'Nothing new to sync.';
+      showToast(message, result.inserted > 0 ? 'success' : 'info');
+      if (result.inserted > 0) onImported?.();
+    } catch (err) {
+      const msg =
+        err instanceof IGSyncError && err.kind === 'not-linked'
+          ? 'Not linked yet — send /link <code> to the account first.'
+          : err instanceof Error
+            ? err.message
+            : 'Could not sync.';
+      showToast(msg, 'error');
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [syncBusy, code, showToast, onImported]);
+
+  const onForget = useCallback(async () => {
+    setSyncBusy(true);
+    let revoked = true;
+    try {
+      const config = await resolveBackendConfig();
+      if (config && code) {
+        try {
+          await unlinkCode(config.baseUrl, code);
+        } catch {
+          revoked = false;
+        }
+      }
+      await update({ igCode: '' });
+      setLocalCode('');
+      setLinkedUsername('');
+      setExpiresAt(0);
+      setSyncPhase('idle');
+      showToast(
+        revoked
+          ? 'Connection removed.'
+          : 'Removed on this device — the server binding could not be revoked.',
+        'info'
+      );
+    } catch {
+      showToast('Could not remove the connection.', 'error');
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [code, update, showToast]);
 
   const setField = (field: keyof FormFields, value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
@@ -412,21 +647,56 @@ export function ProfilePopover({
             onPress={() => setShowServer((s) => !s)}
             className="mt-4 flex-row items-center justify-between rounded-2xl px-3 py-2.5"
             style={{ backgroundColor: c.surfaceAlt }}>
-            <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
-              Self-hosted server
-            </Text>
-            <Ionicons
-              name={showServer ? 'chevron-up' : 'chevron-down'}
-              size={15}
-              color={c.textMuted}
-            />
+            <View className="flex-row items-center">
+              <View
+                className="mr-1.5 h-2 w-2 rounded-full"
+                style={{ backgroundColor: serverDotColor[serverStatus] }}
+              />
+              <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
+                Self-hosted server
+              </Text>
+            </View>
+            <View className="flex-row items-center">
+              <Text className="mr-2 text-[10px]" style={{ color: c.textMuted }}>
+                {serverLabel[serverStatus]}
+              </Text>
+              <Ionicons
+                name={showServer ? 'chevron-up' : 'chevron-down'}
+                size={15}
+                color={c.textMuted}
+              />
+            </View>
           </Pressable>
           {showServer && (
             <>
-              <Text className="mt-0.5 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
-                Reserved for a self-hosted backend (e.g. the metadata extractor or a Chrome
-                extension sync). Not connected yet.
+              <Text
+                className="mt-2 text-[10px] leading-[14px]"
+                style={{ color: serverDotColor[serverStatus] }}>
+                {serverStatus === 'online'
+                  ? 'Server is reachable — link enrichment and Instagram sync will use it.'
+                  : serverStatus === 'offline'
+                    ? 'Server is unreachable from this device. Check the URL below and that it is running.'
+                    : serverStatus === 'checking'
+                      ? 'Checking connection…'
+                      : 'No server configured yet — link enrichment falls back to a public API.'}
               </Text>
+              <Pressable
+                onPress={() => void runServerCheck()}
+                disabled={serverStatus === 'checking'}
+                className="mt-1 flex-row items-center self-start rounded-full px-3 py-1.5"
+                style={{ backgroundColor: c.surfaceAlt }}>
+                <Ionicons
+                  name="refresh"
+                  size={12}
+                  color={serverStatus === 'checking' ? c.textMuted : c.primary}
+                  style={{ marginRight: 4 }}
+                />
+                <Text
+                  className="text-[11px] font-semibold"
+                  style={{ color: serverStatus === 'checking' ? c.textMuted : c.primary }}>
+                  {serverStatus === 'checking' ? 'Checking…' : 'Check now'}
+                </Text>
+              </Pressable>
               <FormLabel color={c.textMuted}>Server URL</FormLabel>
               {inputRow('serverUrl', {
                 placeholder: 'https://api.example.com',
@@ -441,6 +711,174 @@ export function ProfilePopover({
                 autoCorrect: false,
                 secure: !apiKeyVisible,
               })}
+            </>
+          )}
+
+          {/* ‒ Instagram sync ‒ */}
+          <Pressable
+            onPress={() => setShowSync((s) => !s)}
+            className="mt-4 flex-row items-center justify-between rounded-2xl px-3 py-2.5"
+            style={{ backgroundColor: c.surfaceAlt }}>
+            <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
+              Instagram sync
+            </Text>
+            <Ionicons
+              name={showSync ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color={c.textMuted}
+            />
+          </Pressable>
+          {showSync && (
+            <>
+              <Text className="mt-0.5 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
+                Link your Instagram to this device: DM a link code to @{IG_HANDLE} and bookmarks
+                arrive on pull-to-refresh.
+              </Text>
+
+              {syncPhase === 'idle' && (
+                <>
+                  <Pressable
+                    onPress={onConnect}
+                    disabled={syncBusy}
+                    className="mt-2 items-center rounded-2xl py-2.5"
+                    style={{ backgroundColor: syncBusy ? c.surfaceAlt : c.primary }}>
+                    {syncBusy ? (
+                      <ActivityIndicator size="small" color={c.primary} />
+                    ) : (
+                      <Text className="text-[12px] font-semibold" style={{ color: '#FFFFFF' }}>
+                        Connect Instagram
+                      </Text>
+                    )}
+                  </Pressable>
+                </>
+              )}
+
+              {syncPhase === 'waiting' && (
+                <>
+                  <Text className="mt-2 text-[11px] font-semibold" style={{ color: c.text }}>
+                    DM this code to @{IG_HANDLE}
+                  </Text>
+                  <Text
+                    className="mt-1 text-center text-[28px] font-bold"
+                    style={{ color: c.primary, letterSpacing: 8 }}>
+                    {code || localCode}
+                  </Text>
+                  <Text className="mt-0.5 text-center text-[10px]" style={{ color: c.textMuted }}>
+                    Exactly: /link {code}
+                  </Text>
+                  <Text className="mt-1 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
+                    1. Send the message above from the account to link (must not be the official
+                    account).
+                  </Text>
+                  <Text
+                    className="mt-0.5 text-[10px] leading-[14px]"
+                    style={{ color: c.textFaint }}>
+                    2. It auto-syncs here when the message is received (~20s, or pull to refresh
+                    after the toast).
+                  </Text>
+                  <Text className="mt-1 text-[11px] font-semibold" style={{ color: c.textMuted }}>
+                    {countdownLabel(expiresAt)}
+                  </Text>
+                  <Pressable
+                    onPress={onConnect}
+                    disabled={syncBusy}
+                    className="mt-2 items-center rounded-2xl py-2.5"
+                    style={{ backgroundColor: syncBusy ? c.surfaceAlt : c.surfaceAlt }}>
+                    {syncBusy ? (
+                      <ActivityIndicator size="small" color={c.primary} />
+                    ) : (
+                      <Text className="text-[11px] font-semibold" style={{ color: c.textMuted }}>
+                        Use a new code
+                      </Text>
+                    )}
+                  </Pressable>
+                </>
+              )}
+
+              {syncPhase === 'linked' && (
+                <>
+                  <View className="mt-2 flex-row items-center">
+                    <View
+                      className="mr-1.5 h-2 w-2 rounded-full"
+                      style={{ backgroundColor: '#22C55E' }}
+                    />
+                    <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
+                      Linked to{linkedUsername ? ` @${linkedUsername}` : ' your account'}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={onSyncNow}
+                    disabled={syncBusy}
+                    className="mt-2 flex-row items-center justify-center rounded-2xl py-2.5"
+                    style={{ backgroundColor: syncBusy ? c.surfaceAlt : c.primary }}>
+                    {syncBusy ? (
+                      <ActivityIndicator size="small" color={c.primary} />
+                    ) : (
+                      <>
+                        <Ionicons
+                          name="sync-outline"
+                          size={15}
+                          color="#FFFFFF"
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text className="text-[12px] font-semibold" style={{ color: '#FFFFFF' }}>
+                          Sync now
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+                  <Pressable onPress={onForget} disabled={syncBusy} className="mt-1.5 py-1">
+                    <Text
+                      className="text-center text-[11px] font-semibold"
+                      style={{ color: '#F87171' }}>
+                      Forget connection
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+
+              {syncPhase === 'unknown' && (
+                <>
+                  <Text className="mt-2 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
+                    This code was never registered, or it expired (10 min TTL). Generate a fresh
+                    one.
+                  </Text>
+                  <Pressable
+                    onPress={onConnect}
+                    disabled={syncBusy}
+                    className="mt-2 items-center rounded-2xl py-2.5"
+                    style={{ backgroundColor: syncBusy ? c.surfaceAlt : c.primary }}>
+                    {syncBusy ? (
+                      <ActivityIndicator size="small" color={c.primary} />
+                    ) : (
+                      <Text className="text-[12px] font-semibold" style={{ color: '#FFFFFF' }}>
+                        Generate a new code
+                      </Text>
+                    )}
+                  </Pressable>
+                </>
+              )}
+
+              {syncPhase === 'error' && (
+                <>
+                  <Text className="mt-2 text-[10px] leading-[14px]" style={{ color: '#F87171' }}>
+                    {syncError || 'Could not reach your server.'}
+                  </Text>
+                  <Pressable
+                    onPress={onRetryCheck}
+                    disabled={syncChecking}
+                    className="mt-2 flex-row items-center justify-center rounded-2xl py-2.5"
+                    style={{ backgroundColor: c.surfaceAlt }}>
+                    {syncChecking ? (
+                      <ActivityIndicator size="small" color={c.primary} />
+                    ) : (
+                      <Text className="text-[11px] font-semibold" style={{ color: c.textMuted }}>
+                        Retry
+                      </Text>
+                    )}
+                  </Pressable>
+                </>
+              )}
             </>
           )}
 

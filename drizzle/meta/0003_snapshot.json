@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a9b743d5-2d3c-4932-b9f2-daf77d287ee2",
-  "prevId": "e9878a35-257f-42e8-9ce8-4f64b5502d5c",
+  "id": "fbfe34df-9c92-41cb-adb8-723be0d60324",
+  "prevId": "a9b743d5-2d3c-4932-b9f2-daf77d287ee2",
   "tables": {
     "bookmarks": {
       "name": "bookmarks",
@@ -306,6 +306,14 @@
         },
         "api_key": {
           "name": "api_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "ig_code": {
+          "name": "ig_code",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

@@ -4,37 +4,13 @@
 // parsing. Network I/O (`fetch`) runs on the native thread and never blocks
 // the JS/UI thread.
 
-import Constants from 'expo-constants';
 import type { BookmarkType } from '@/types/bookmarks';
 import type { NewBookmark } from '@/db/schema';
-import { loadSettings } from '@/db/settingsService';
 import { debugLog, pushEvent } from './debug';
 import { urlHashFor } from './hash';
+import { resolveBackendConfig } from './backendConfig';
 
 export const METADATA_TIMEOUT_MS = 12000;
-
-// Resolved at enrichment time, never baked in:
-//   1. settings.serverUrl (profile, user-controlled; prefilled from env on
-//      first run) — with settings.apiKey as the bearer token;
-//   2. http://<dev-machine-ip>:8000 derived from Expo's hostUri (local dev);
-//   3. null → fall back to the interim third-party extraction API.
-async function resolveExtractorConfig(): Promise<{ baseUrl: string; apiKey: string } | null> {
-  try {
-    const settings = await loadSettings();
-    const baseUrl = settings.serverUrl.trim().replace(/\/+$/, '');
-    if (baseUrl) return { baseUrl, apiKey: settings.apiKey.trim() };
-  } catch {
-    // fall through to the dev fallback below
-  }
-
-  const hostUri = Constants.expoConfig?.hostUri;
-  if (hostUri) {
-    const host = hostUri.split(':')[0];
-    if (host) return { baseUrl: `http://${host}:8000`, apiKey: '' };
-  }
-
-  return null;
-}
 
 // Sites that serve a consent/JS shell (or require a crawler UA) to normal
 // browser-like clients, so a device-side direct fetch cannot extract metadata.
@@ -389,7 +365,7 @@ export async function fetchExtractedMetadata(
   let meta: ExtractorResult | null = null;
   let source: ExtractSource = 'interim';
 
-  const config = await resolveExtractorConfig();
+  const config = await resolveBackendConfig();
   if (config) {
     source = 'self-hosted';
     meta = await fetchMetadataViaExtractor(url, config.baseUrl, config.apiKey);
