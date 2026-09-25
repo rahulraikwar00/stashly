@@ -46,23 +46,19 @@
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": ["**/*"],
     "ios": {
-      "bundleIdentifier": "com.myexpoapp.bookmarks",
+      "bundleIdentifier": "com.stashly.app",
       "supportsTablet": true,
       "entitlements": {
-        "com.apple.security.application-groups": ["group.com.myexpoapp.bookmarks"]
+        "com.apple.security.application-groups": ["group.com.stashly.app"]
       }
     },
     "android": {
-      "package": "com.myexpoapp.bookmarks",
+      "package": "com.stashly.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.INTERNET",
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -78,16 +74,16 @@
               "appExtensions": [
                 {
                   "targetName": "expo-sharing-extension",
-                  "bundleIdentifier": "com.myexpoapp.bookmarks.expo-sharing-extension",
+                  "bundleIdentifier": "com.stashly.app.expo-sharing-extension",
                   "entitlements": {
-                    "com.apple.security.application-groups": ["group.com.myexpoapp.bookmarks"]
+                    "com.apple.security.application-groups": ["group.com.stashly.app"]
                   }
                 }
               ]
             }
           }
         },
-        "projectId": "81757c79-0858-4d34-a382-bb4863e7b662"
+        "projectId": "fa132747-1542-4a95-942e-6cc515ea2dbd"
       }
     },
     "owner": "rahulraikwar00",
@@ -95,7 +91,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/81757c79-0858-4d34-a382-bb4863e7b662"
+      "url": "https://u.expo.dev/fa132747-1542-4a95-942e-6cc515ea2dbd"
     }
   }
 }
