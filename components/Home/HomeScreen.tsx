@@ -202,7 +202,7 @@ export function HomeScreen() {
           <Text
             className="text-[24px] font-bold tracking-tight"
             style={{ color: theme.colors.text }}>
-            Bookmarks
+            Stashly
           </Text>
           <Pressable hitSlop={8} onPress={() => setShowProfile(true)} className="active:opacity-70">
             <UserAvatar

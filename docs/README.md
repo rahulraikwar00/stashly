@@ -1,6 +1,6 @@
 # Project Documentation
 
-Short, plain-language guides for this bookmark app. Read in this order:
+Short, plain-language guides for Stashly. Read in this order:
 
 | #   | Doc                                                | What it answers                                               |
 | --- | -------------------------------------------------- | ------------------------------------------------------------- |

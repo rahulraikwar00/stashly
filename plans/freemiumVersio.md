@@ -2,7 +2,7 @@ Here's a complete guide you can hand to an AI agent (or a new engineer) to build
 
 ---
 
-# AI Agent Build Guide — Two-Tier Instagram Bookmark App
+# AI Agent Build Guide — Two-Tier Ingestion in Stashly
 
 ## 0. The Goal (read this first)
 
