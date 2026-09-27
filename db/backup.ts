@@ -88,9 +88,8 @@ function normalizeBackupRows(raw: string): NewBookmark[] {
     }
 
     const type = BOOKMARK_TYPES.has(asString(record.type)) ? asString(record.type) : 'link';
-    const tags = Array.isArray(record.tags)
-      ? normalizeTags(record.tags.map((t) => asString(t)).join(', '))
-      : normalizeTags(asString(record.tags));
+    // normalizeTags takes the array, the legacy JSON string, or raw text alike.
+    const tags = normalizeTags(Array.isArray(record.tags) ? record.tags : asString(record.tags));
 
     rows.push({
       url,

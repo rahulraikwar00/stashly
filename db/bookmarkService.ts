@@ -11,6 +11,7 @@ import {
   isWalledDomain,
 } from '@/utils/metadata';
 import { urlHashFor } from '@/utils/hash';
+import { normalizeTags } from '@/utils/pin';
 import { pushEvent } from '@/utils/debug';
 
 /**
@@ -126,7 +127,7 @@ function mapDmToRow(res: IGBookmark, now: number): NewBookmark {
     publishedAt: res.publishedAt ?? null,
     language: res.language ?? '',
     type: res.type ?? 'link',
-    tags: JSON.stringify(res.tags ?? []),
+    tags: JSON.stringify(normalizeTags(res.tags)),
     notes: '',
     isFavorite: false,
     isArchived: false,

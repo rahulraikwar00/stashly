@@ -27,24 +27,68 @@ export function bookmarkToPin(b: Bookmark): Pin {
   };
 }
 
-/**
- * Parses the comma-separated tag input the user types (or a stored JSON array
- * string) into a normalized, de-duplicated list: lowercase, no leading `#`,
- * no double quotes (keeps the JSON-substring tag filter reliable), empty
- * entries dropped.
- */
-export function parseTags(value: string): string[] {
-  return Array.from(
-    new Set(
-      value
-        .split(',')
-        .map((t) => t.trim().toLowerCase().replace(/^#/, '').replace(/"/g, ''))
-        .filter(Boolean)
-    )
-  );
+function asTagText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
 }
 
-export function normalizeTags(value: string): string[] {
+/**
+ * Splits a tags value into its raw entries. Three shapes reach this:
+ *   - a real array (`string[]` from the wire or a backup file)
+ *   - the stored column, a JSON array string (`["design","mindful"]`)
+ *   - anything else, split on commas — user text-input (`cooking, travel`)
+ *     and the legacy/mangled values that comma-splitting must still survive
+ *     (`[design, mindful]`, a double-encoded `"[design, mindful]"`)
+ */
+function toTagEntries(value: string | string[] | null | undefined): string[] {
+  if (Array.isArray(value)) return value.map(asTagText);
+
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(asTagText);
+    } catch {
+      // Not JSON — fall through to comma splitting.
+    }
+  }
+
+  return trimmed.split(',');
+}
+
+/**
+ * Normalizes a tags value into a clean, de-duplicated list: lowercase, no
+ * leading `#`, no quotes or brackets, empty entries dropped. Keeps the stored
+ * value and the UI in agreement, which the JSON-substring tag filter relies on.
+ *
+ * An empty column (`[]`) and an empty value both yield `[]`, so a tagless
+ * bookmark has no tags rather than one bogus `[]` tag.
+ */
+export function parseTags(value: string | string[] | null | undefined): string[] {
+  const tags: string[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of toTagEntries(value)) {
+    const tag = entry
+      .trim()
+      .replace(/^["']|["']$/g, '')
+      .replace(/["']/g, '')
+      .replace(/^#/, '')
+      .replace(/[[\]]/g, '')
+      .trim()
+      .toLowerCase();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+
+  return tags;
+}
+
+export function normalizeTags(value: string | string[] | null | undefined): string[] {
   return parseTags(value);
 }
 
@@ -162,7 +206,7 @@ export function pinMatchesFilters(pin: Pin, query: BookmarkQuery): boolean {
   if (query.type && pin.type !== query.type) return false;
   if (query.favorite !== undefined && pin.isFavorite !== query.favorite) return false;
   if (query.unread !== undefined && pin.isRead === query.unread) return false;
-  if (query.tag && !pin.tags.includes(query.tag)) return false;
+  if (query.tag && !pin.tags.includes(query.tag.toLowerCase())) return false;
 
   const search = query.search?.trim().toLowerCase();
   if (search) {

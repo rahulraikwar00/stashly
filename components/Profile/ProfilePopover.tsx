@@ -22,6 +22,7 @@ import { useConfirm } from '@/components/Feedback/ConfirmProvider';
 import { useSettings } from '@/hooks/useSettings';
 import type { SettingsPatch } from '@/db/settingsService';
 import { importBookmarksJson, shareBookmarksExport } from '@/db/backup';
+import { resetBookmarksForDev } from '@/db/seed';
 import { resolveBackendConfig, checkServerHealth, type ServerStatus } from '@/utils/backendConfig';
 import {
   IG_HANDLE,
@@ -161,6 +162,7 @@ export function ProfilePopover({
   const [showBackup, setShowBackup] = useState(false);
   const [backupText, setBackupText] = useState('');
   const [backupBusy, setBackupBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // ── Instagram sync state machine ────────────────────────────────────
@@ -379,33 +381,15 @@ export function ProfilePopover({
     }
   }, [code, update, showToast]);
 
-  // ── Waiting-phase helpers: copy the code / full message, open the DM ──
+  // ── Waiting-phase helpers: copy the /link message, open the DM ──
 
   const onOpenDm = useCallback(async () => {
-    const target = `/link ${code || localCode}`;
-    try {
-      await Clipboard.setStringAsync(target);
-      showToast('Message copied — paste it in the chat.', 'info');
-    } catch {
-      // clipboard failure shouldn't block opening the DM
-    }
     try {
       await Linking.openURL(`https://ig.me/m/${IG_HANDLE}`);
     } catch {
       showToast('Could not open Instagram.', 'error');
     }
-  }, [code, localCode, showToast]);
-
-  const onCopyCode = useCallback(async () => {
-    const target = code || localCode;
-    if (!target) return;
-    try {
-      await Clipboard.setStringAsync(target);
-      showToast('Code copied.', 'info');
-    } catch {
-      showToast('Could not copy the code.', 'error');
-    }
-  }, [code, localCode, showToast]);
+  }, [showToast]);
 
   const onCopyFull = useCallback(async () => {
     try {
@@ -487,6 +471,29 @@ export function ProfilePopover({
     if (!ok) return;
     setForm((f) => ({ ...f, displayName: '', username: '', email: '', avatarUri: '' }));
     setErrors({});
+  };
+
+  // Dev-only escape hatch: returns the library to a known-good seeded state
+  // after a data-shape bug has written bad rows. Never rendered in release.
+  const onResetLibrary = async () => {
+    if (resetBusy) return;
+    const ok = await confirm({
+      title: 'Reset library',
+      message: 'Every bookmark will be deleted and replaced with the sample library.',
+      confirmLabel: 'Reset',
+      destructive: true,
+    });
+    if (!ok) return;
+    setResetBusy(true);
+    try {
+      const total = await resetBookmarksForDev();
+      showToast(`Library reset — ${total} bookmark${total === 1 ? '' : 's'}.`, 'success');
+      onImported?.();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not reset the library.', 'error');
+    } finally {
+      setResetBusy(false);
+    }
   };
 
   const onExport = async () => {
@@ -831,24 +838,9 @@ export function ProfilePopover({
                         Copy /link message
                       </Text>
                     </Pressable>
-                    <Pressable
-                      onPress={onCopyCode}
-                      className="ml-2 flex-1 flex-row items-center justify-center rounded-xl py-2"
-                      style={{ backgroundColor: c.surfaceAlt }}>
-                      <Ionicons
-                        name="clipboard-outline"
-                        size={13}
-                        color={c.textMuted}
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text className="text-[11px] font-semibold" style={{ color: c.textMuted }}>
-                        Copy code
-                      </Text>
-                    </Pressable>
                   </View>
                   <Text className="mt-1 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
-                    The message is copied — open the chat above and hit send (from the account to
-                    link, not this one).
+                    Tap Copy, open the chat above, paste and send.
                   </Text>
                   <Text
                     className="mt-0.5 text-[10px] leading-[14px]"
@@ -1062,6 +1054,21 @@ export function ProfilePopover({
               Reset profile
             </Text>
           </Pressable>
+          {__DEV__ && (
+            <Pressable
+              onPress={onResetLibrary}
+              disabled={resetBusy}
+              hitSlop={8}
+              className="mt-2 items-center">
+              {resetBusy ? (
+                <ActivityIndicator size="small" color={c.textFaint} />
+              ) : (
+                <Text className="text-[11px]" style={{ color: c.textFaint }}>
+                  Reset library (dev)
+                </Text>
+              )}
+            </Pressable>
+          )}
         </View>
       </KeyboardAvoidingView>
     </PopupCard>
