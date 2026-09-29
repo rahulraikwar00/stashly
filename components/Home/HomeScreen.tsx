@@ -38,9 +38,6 @@ export function HomeScreen() {
   const [showAdd, setShowAdd] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-
-  const igLinked = Boolean(settings.igCode?.trim());
 
   const filtersActive =
     type !== 'all' || status !== 'all' || tagFilter != null || sort !== 'newest';
@@ -63,11 +60,7 @@ export function HomeScreen() {
     [type, status, sort]
   );
 
-  const clearFilters = useCallback(() => {
-    setType('all');
-    setStatus('all');
-    setTagFilter(null);
-  }, []);
+  const clearTagFilter = useCallback(() => setTagFilter(null), []);
 
   const handleTagFilter = useCallback((tag: string) => {
     setTagFilter(tag);
@@ -128,45 +121,9 @@ export function HomeScreen() {
   const handleLongPressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'detail' }), []);
   const handlePressMenu = useCallback((pin: Pin) => setActive({ pin, mode: 'detail' }), []);
 
-  const handleHeaderSync = useCallback(async () => {
-    if (syncing) return;
-    setSyncing(true);
-    try {
-      const result = await syncNowIfLinked();
-      if (!result) {
-        showToast('Could not sync. Check your server connection.', 'error');
-        return;
-      }
-      if (result.inserted > 0) {
-        await refresh();
-        showToast(
-          `Imported ${result.inserted} bookmark${result.inserted === 1 ? '' : 's'} from Instagram.`,
-          'success'
-        );
-      } else {
-        showToast('You are up to date — nothing new.', 'info');
-      }
-    } finally {
-      setSyncing(false);
-    }
-  }, [syncing, refresh, showToast]);
-
   const trailing = useMemo(
     () => (
       <View className="ml-1.5 flex-row items-center">
-        {igLinked && (
-          <Pressable
-            onPress={() => void handleHeaderSync()}
-            hitSlop={8}
-            disabled={syncing}
-            className="mr-2 active:opacity-70">
-            {syncing ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} />
-            ) : (
-              <Ionicons name="sync-outline" size={16} color={theme.colors.primary} />
-            )}
-          </Pressable>
-        )}
         {filtersActive && (
           <View
             className="mr-1 h-1.5 w-1.5 rounded-full"
@@ -182,14 +139,7 @@ export function HomeScreen() {
         </Pressable>
       </View>
     ),
-    [
-      filtersActive,
-      igLinked,
-      syncing,
-      handleHeaderSync,
-      theme.colors.primary,
-      theme.colors.textMuted,
-    ]
+    [filtersActive, theme.colors.primary, theme.colors.textMuted]
   );
 
   const openLink = useCallback(
@@ -257,9 +207,40 @@ export function HomeScreen() {
         <View className="mt-2.5">
           <SearchBar value={search} onChangeText={setSearch} trailing={trailing} />
         </View>
+
+        {tagFilter != null && (
+          <View className="mt-2 flex-row flex-wrap items-center">
+            <Pressable
+              onPress={clearTagFilter}
+              className="flex-row items-center rounded-full py-1.5 pl-3 pr-1.5 active:opacity-80"
+              style={{ backgroundColor: theme.colors.primary }}>
+              <Text
+                className="font-semibold"
+                style={{
+                  color: '#FFFFFF',
+                  fontSize: theme.typography.fontSize.card,
+                }}>
+                #{tagFilter}
+              </Text>
+              <View className="ml-1.5">
+                <Ionicons name="close" size={13} color="#FFFFFF" />
+              </View>
+            </Pressable>
+          </View>
+        )}
       </View>
     ),
-    [search, trailing, settings, theme.colors.text, theme.typography.fontSize.featured]
+    [
+      search,
+      trailing,
+      settings,
+      tagFilter,
+      clearTagFilter,
+      theme.colors.text,
+      theme.colors.primary,
+      theme.typography.fontSize.featured,
+      theme.typography.fontSize.card,
+    ]
   );
 
   const footer = useMemo(
@@ -336,7 +317,7 @@ export function HomeScreen() {
         sort={sort}
         tag={tagFilter ?? undefined}
         onSelectGroup={onSelectGroup}
-        onClearTag={clearFilters}
+        onClearTag={clearTagFilter}
       />
 
       <ProfilePopover
