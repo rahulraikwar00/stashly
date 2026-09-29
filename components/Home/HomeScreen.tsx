@@ -4,13 +4,11 @@ import type { AppTheme } from '@/constants/theme';
 import { useTheme } from 'expo-router';
 import { ActivityIndicator, Linking, Pressable, Share, Text, View } from 'react-native';
 import { useToast } from '@/components/Feedback/ToastProvider';
-import { useConfirm } from '@/components/Feedback/ConfirmProvider';
 import { MasonryGrid } from './MasonryGrid';
 import { SearchBar } from './SearchBar';
 import { AddDock } from './AddDock';
 import { FilterPopover, type FilterGroup } from './FilterPopover';
 import { AddBookmarkPopover } from '@/components/Pin/AddBookmarkPopover';
-import { PinActionMenu } from '@/components/Pin/PinActionMenu';
 import { PinDetailPopover } from '@/components/Pin/PinDetailPopover';
 import { EditBookmarkPopover } from '@/components/Pin/EditBookmarkPopover';
 import { ProfilePopover } from '@/components/Profile/ProfilePopover';
@@ -23,13 +21,12 @@ import { syncNowIfLinked } from '@/utils/igDm';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type Overlay = { pin: Pin; mode: 'actions' | 'detail' | 'edit' } | null;
+type Overlay = { pin: Pin; mode: 'detail' | 'edit' } | null;
 
 export function HomeScreen() {
   const theme = useTheme() as AppTheme;
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
-  const confirm = useConfirm();
   const { settings } = useSettings();
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
@@ -41,6 +38,9 @@ export function HomeScreen() {
   const [showAdd, setShowAdd] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const igLinked = Boolean(settings.igCode?.trim());
 
   const filtersActive =
     type !== 'all' || status !== 'all' || tagFilter != null || sort !== 'newest';
@@ -125,12 +125,48 @@ export function HomeScreen() {
   }, [refresh, showToast]);
 
   const handlePressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'detail' }), []);
-  const handleLongPressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'actions' }), []);
-  const handlePressMenu = useCallback((pin: Pin) => setActive({ pin, mode: 'actions' }), []);
+  const handleLongPressPin = useCallback((pin: Pin) => setActive({ pin, mode: 'detail' }), []);
+  const handlePressMenu = useCallback((pin: Pin) => setActive({ pin, mode: 'detail' }), []);
+
+  const handleHeaderSync = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const result = await syncNowIfLinked();
+      if (!result) {
+        showToast('Could not sync. Check your server connection.', 'error');
+        return;
+      }
+      if (result.inserted > 0) {
+        await refresh();
+        showToast(
+          `Imported ${result.inserted} bookmark${result.inserted === 1 ? '' : 's'} from Instagram.`,
+          'success'
+        );
+      } else {
+        showToast('You are up to date — nothing new.', 'info');
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing, refresh, showToast]);
 
   const trailing = useMemo(
     () => (
       <View className="ml-1.5 flex-row items-center">
+        {igLinked && (
+          <Pressable
+            onPress={() => void handleHeaderSync()}
+            hitSlop={8}
+            disabled={syncing}
+            className="mr-2 active:opacity-70">
+            {syncing ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : (
+              <Ionicons name="sync-outline" size={16} color={theme.colors.primary} />
+            )}
+          </Pressable>
+        )}
         {filtersActive && (
           <View
             className="mr-1 h-1.5 w-1.5 rounded-full"
@@ -146,7 +182,14 @@ export function HomeScreen() {
         </Pressable>
       </View>
     ),
-    [filtersActive, theme.colors.primary, theme.colors.textMuted]
+    [
+      filtersActive,
+      igLinked,
+      syncing,
+      handleHeaderSync,
+      theme.colors.primary,
+      theme.colors.textMuted,
+    ]
   );
 
   const openLink = useCallback(
@@ -169,16 +212,11 @@ export function HomeScreen() {
   );
 
   const confirmDelete = useCallback(
-    async (pin: Pin) => {
-      const ok = await confirm({
-        title: 'Delete bookmark',
-        message: `"${pin.title}" will be permanently removed.`,
-        confirmLabel: 'Delete',
-        destructive: true,
-      });
-      if (ok) deletePin(pin);
+    (pin: Pin) => {
+      deletePin(pin);
+      setActive(null);
     },
-    [confirm, deletePin]
+    [deletePin]
   );
 
   const handleSharePin = useCallback((pin: Pin) => {
@@ -200,8 +238,11 @@ export function HomeScreen() {
       <View className="mt-4 px-4 pb-3 pt-4 ">
         <View className="flex-row items-center justify-between ">
           <Text
-            className="text-[24px] font-bold tracking-tight"
-            style={{ color: theme.colors.text }}>
+            className="font-bold tracking-tight"
+            style={{
+              color: theme.colors.text,
+              fontSize: theme.typography.fontSize.featured,
+            }}>
             Stashly
           </Text>
           <Pressable hitSlop={8} onPress={() => setShowProfile(true)} className="active:opacity-70">
@@ -218,7 +259,7 @@ export function HomeScreen() {
         </View>
       </View>
     ),
-    [search, trailing, settings, theme.colors.text]
+    [search, trailing, settings, theme.colors.text, theme.typography.fontSize.featured]
   );
 
   const footer = useMemo(
@@ -226,28 +267,40 @@ export function HomeScreen() {
       <View className="py-6">
         {loading && <ActivityIndicator />}
         {!hasMore && pins.length > 0 && (
-          <Text className="text-center text-[11px]" style={{ color: theme.colors.textFaint }}>
+          <Text
+            className="text-center"
+            style={{
+              color: theme.colors.textFaint,
+              fontSize: theme.typography.fontSize.small,
+            }}>
             {"You've reached the end"}
           </Text>
         )}
         {error && (
-          <Text className="text-center text-[11px]" style={{ color: '#EF4444' }}>
+          <Text
+            className="text-center"
+            style={{ color: '#EF4444', fontSize: theme.typography.fontSize.small }}>
             Something went wrong. Pull to retry.
           </Text>
         )}
       </View>
     ),
-    [loading, hasMore, pins.length, error, theme.colors.textFaint]
+    [loading, hasMore, pins.length, error, theme.colors.textFaint, theme.typography.fontSize.small]
   );
 
   const empty = useMemo(
     () =>
       !loading && !refreshing && !error ? (
-        <Text className="mt-16 text-center text-[12px]" style={{ color: theme.colors.textMuted }}>
+        <Text
+          className="mt-16 text-center"
+          style={{
+            color: theme.colors.textMuted,
+            fontSize: theme.typography.fontSize.card,
+          }}>
           No bookmarks yet.
         </Text>
       ) : null,
-    [loading, refreshing, error, theme.colors.textMuted]
+    [loading, refreshing, error, theme.colors.textMuted, theme.typography.fontSize.card]
   );
 
   return (
@@ -257,6 +310,7 @@ export function HomeScreen() {
         onPressPin={handlePressPin}
         onLongPressPin={handleLongPressPin}
         onPressMenu={handlePressMenu}
+        onToggleFavorite={toggleFavorite}
         headerContent={header}
         footer={footer}
         empty={empty}
@@ -290,23 +344,6 @@ export function HomeScreen() {
         onClose={() => setShowProfile(false)}
         onImported={handleSaved}
       />
-
-      {active?.mode === 'actions' && (
-        <PinActionMenu
-          pin={active.pin}
-          visible
-          onClose={() => setActive(null)}
-          onOpenLink={() => openLink(active.pin)}
-          onViewDetails={() => setActive((prev) => (prev ? { ...prev, mode: 'detail' } : prev))}
-          onEdit={() => handleEditPin(active.pin)}
-          onToggleFavorite={() => toggleFavorite(active.pin)}
-          onToggleRead={() => toggleRead(active.pin)}
-          onToggleArchive={() => toggleArchive(active.pin)}
-          onCopyUrl={() => copyUrl(active.pin)}
-          onShare={() => handleSharePin(active.pin)}
-          onDelete={() => confirmDelete(active.pin)}
-        />
-      )}
 
       {active?.mode === 'detail' && (
         <PinDetailPopover

@@ -353,14 +353,21 @@ export async function fetchMetadataFromAzizbecha(url: string): Promise<Extractor
 
 export type ExtractSource = 'self-hosted' | 'interim';
 
+export type FetchExtractOptions = {
+  /** When false, never call the public link-preview API (DM / paid path). Default true. */
+  allowInterim?: boolean;
+};
+
 /**
  * Default extraction path used by enrichment: prefer our self-hosted FastAPI
- * extractor, else the interim third-party API. Returns null when both fail,
- * otherwise the mapped patch plus which source produced it.
+ * extractor, else the interim third-party API (unless `allowInterim` is false).
+ * Returns null when extraction fails, otherwise the mapped patch plus source.
  */
 export async function fetchExtractedMetadata(
-  url: string
+  url: string,
+  options?: FetchExtractOptions
 ): Promise<{ patch: Partial<NewBookmark>; source: ExtractSource } | null> {
+  const allowInterim = options?.allowInterim !== false;
   const startedAt = Date.now();
   let meta: ExtractorResult | null = null;
   let source: ExtractSource = 'interim';
@@ -370,10 +377,12 @@ export async function fetchExtractedMetadata(
     source = 'self-hosted';
     meta = await fetchMetadataViaExtractor(url, config.baseUrl, config.apiKey);
   }
-  if (!meta) {
+  if (!meta && allowInterim) {
     source = 'interim';
     debugLog('metadata', 'falling back to interim API');
     meta = await fetchMetadataFromAzizbecha(url);
+  } else if (!meta && !allowInterim) {
+    debugLog('metadata', 'interim fallback skipped (DM path)');
   }
 
   const patch = meta ? mapExtractorResult(url, meta) : null;

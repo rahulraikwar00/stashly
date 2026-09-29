@@ -55,6 +55,7 @@ export function FilterPopover({
 }) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
+  const t = theme.typography;
 
   const hasActiveFilters = type !== 'all' || status !== 'all' || !!tag;
   const selectedFor = (group: FilterGroup) => {
@@ -67,7 +68,7 @@ export function FilterPopover({
     <PopupCard visible={visible} onClose={onClose} maxWidth={300}>
       <View className="px-4 pb-4 pt-3.5">
         <View className="flex-row items-center justify-between">
-          <Text className="text-[14px] font-bold" style={{ color: c.text }}>
+          <Text className="font-bold" style={{ color: c.text, fontSize: t.fontSize.title }}>
             Filters
           </Text>
           <Pressable
@@ -79,8 +80,11 @@ export function FilterPopover({
             disabled={!hasActiveFilters}
             hitSlop={8}>
             <Text
-              className="text-[11px] font-semibold"
-              style={{ color: hasActiveFilters ? c.primary : c.textFaint }}>
+              className="font-semibold"
+              style={{
+                color: hasActiveFilters ? c.primary : c.textFaint,
+                fontSize: t.fontSize.small,
+              }}>
               Clear
             </Text>
           </Pressable>
@@ -89,15 +93,17 @@ export function FilterPopover({
         {tag && (
           <View className="mt-3.5">
             <Text
-              className="text-[10px] font-bold uppercase tracking-widest"
-              style={{ color: c.textFaint }}>
+              className="font-bold uppercase tracking-widest"
+              style={{ color: c.textFaint, fontSize: t.fontSize.caption }}>
               Tag
             </Text>
             <View className="mt-1.5 flex-row items-center">
               <View
                 className="flex-row items-center rounded-full py-1.5 pl-3 pr-1.5"
                 style={{ backgroundColor: c.primary }}>
-                <Text className="text-[12px] font-semibold" style={{ color: '#FFFFFF' }}>
+                <Text
+                  className="font-semibold"
+                  style={{ color: '#FFFFFF', fontSize: t.fontSize.card }}>
                   #{tag}
                 </Text>
                 <Pressable onPress={onClearTag} hitSlop={6} className="ml-1.5">
@@ -144,12 +150,13 @@ function FilterSection({
 }) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
+  const t = theme.typography;
 
   return (
     <View className="mt-3.5">
       <Text
-        className="text-[10px] font-bold uppercase tracking-widest"
-        style={{ color: c.textFaint }}>
+        className="font-bold uppercase tracking-widest"
+        style={{ color: c.textFaint, fontSize: t.fontSize.caption }}>
         {label}
       </Text>
       <View className="mt-1.5 flex-row flex-wrap gap-2">
@@ -170,8 +177,11 @@ function FilterSection({
                 />
               )}
               <Text
-                className="text-[12px] font-semibold"
-                style={{ color: active ? '#FFFFFF' : c.textMuted }}>
+                className="font-semibold"
+                style={{
+                  color: active ? '#FFFFFF' : c.textMuted,
+                  fontSize: t.fontSize.card,
+                }}>
                 {def.label}
               </Text>
             </Pressable>

@@ -17,6 +17,7 @@ export const SearchBar = memo(function SearchBar({
 }) {
   const theme = useTheme() as AppTheme;
   const c = theme.colors;
+  const t = theme.typography;
 
   return (
     <View
@@ -24,8 +25,8 @@ export const SearchBar = memo(function SearchBar({
       style={{ backgroundColor: c.surfaceAlt }}>
       <Ionicons name="search" size={16} color={c.textMuted} />
       <TextInput
-        className="ml-2 flex-1 py-1 text-[14px]"
-        style={{ color: c.text }}
+        className="ml-2 flex-1 py-1"
+        style={{ color: c.text, fontSize: t.fontSize.title }}
         placeholder={placeholder ?? 'Search bookmarks…'}
         placeholderTextColor={c.textMuted}
         value={value}

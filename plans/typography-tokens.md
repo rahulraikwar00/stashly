@@ -1,6 +1,6 @@
-# Plan: Extract typography tokens into the theme (NOT APPLIED)
+# Plan: Extract typography tokens into the theme
 
-Status: saved/planned — do not apply yet.
+Status: **applied** — tokens live on `AppTheme.typography`; primary Home/Pin surfaces use them.
 
 ## Goal
 

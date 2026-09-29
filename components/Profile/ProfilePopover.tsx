@@ -770,8 +770,8 @@ export function ProfilePopover({
           {showSync && (
             <>
               <Text className="mt-0.5 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
-                Link your Instagram to this device: DM a link code to @{IG_HANDLE} and bookmarks
-                arrive on pull-to-refresh.
+                Link once by DMing @{IG_HANDLE} a code. After that, sync from the library header
+                icon or pull-to-refresh — Profile is only for connect / forget.
               </Text>
 
               {syncPhase === 'idle' && (

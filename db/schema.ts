@@ -77,7 +77,7 @@ export const settings = sqliteTable('settings', {
   defaultStatus: text('default_status').notNull().default('all'), // "all" | "favorites" | "unread" | "archived"
 
   // ─────────────────────────────────────────────
-  // SERVER — reserved for a self-hosted backend (not connected yet)
+  // SERVER — self-hosted relay (/messages/links) + /metadata extractor
   // ─────────────────────────────────────────────
   serverUrl: text('server_url').notNull().default(''),
   apiKey: text('api_key').notNull().default(''),

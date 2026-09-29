@@ -79,8 +79,35 @@ function buildOrderBy(query: BookmarkQuery) {
 // ─────────────────────────────────────────────
 
 /**
- * Saves a single bookmark.
- * Returns the inserted row (with generated id).
+ * Shared insert used by paste and DM paths. Dedupes on `urlHash` via
+ * `onConflictDoNothing` so the same URL saved both ways is one row.
+ * Returns the inserted row, or `null` when the URL was already saved.
+ */
+export async function insertBookmark(bookmark: NewBookmark): Promise<Bookmark | null> {
+  const [saved] = await db
+    .insert(bookmarks)
+    .values(bookmark)
+    .onConflictDoNothing({ target: bookmarks.urlHash })
+    .returning();
+  return saved ?? null;
+}
+
+/**
+ * Batch insert with the same `urlHash` dedupe as `insertBookmark`.
+ * Returns only the rows that were actually inserted.
+ */
+export async function insertBookmarks(items: NewBookmark[]): Promise<Bookmark[]> {
+  if (items.length === 0) return [];
+  return db
+    .insert(bookmarks)
+    .values(items)
+    .onConflictDoNothing({ target: bookmarks.urlHash })
+    .returning();
+}
+
+/**
+ * Force-insert a single bookmark (no conflict handling). Prefer
+ * `insertBookmark` for user-facing save paths.
  */
 export async function saveBookmark(bookmark: NewBookmark): Promise<Bookmark> {
   const [saved] = await db.insert(bookmarks).values(bookmark).returning();
@@ -88,8 +115,8 @@ export async function saveBookmark(bookmark: NewBookmark): Promise<Bookmark> {
 }
 
 /**
- * Saves multiple bookmarks in one batch.
- * Returns all inserted rows.
+ * Force-insert multiple bookmarks (no conflict handling). Used by backup
+ * restore after the caller has already filtered duplicates.
  */
 export async function saveBookmarks(items: NewBookmark[]): Promise<Bookmark[]> {
   if (items.length === 0) return [];
@@ -110,6 +137,8 @@ function isHttpUrl(value: string): boolean {
  * urlHash is recomputed client-side with the app's own djb2 (`urlHashFor`) so
  * dedup is guaranteed identical to the paste path regardless of the backend's
  * hash implementation. Sender order wins: createdAt = the DM timestamp.
+ * Backend-provided image/title/author/caption/tags are kept so the card can
+ * paint without a second network hop.
  */
 function mapDmToRow(res: IGBookmark, now: number): NewBookmark {
   return {
@@ -141,17 +170,9 @@ function mapDmToRow(res: IGBookmark, now: number): NewBookmark {
 }
 
 /**
- * Inserts backend DM bookmarks through the same dedupe path as paste saves
- * (`onConflictDoNothing` on `urlHash`), so the same reel saved both ways is
- * one row. Items without a usable http(s) URL are counted as skipped and never
- * inserted.
- *
- * After the batch insert, every inserted bookmark (and any previously-saved
- * bare row that conflicts on the same URL) is enriched through the regular
- * metadata path (`enrichBookmark` — direct fetch → self-hosted extractor), so
- * DM cards get a real title + thumbnail like pasted ones. Enrichment is
- * awaited and parallel so the first grid paint is fully populated; failures
- * are swallowed — a bare card is always better than a failed sync.
+ * Inserts backend DM bookmarks through the shared `insertBookmarks` dedupe
+ * path. After insert, only bare cards (missing title and image) are enriched
+ * via self-hosted `/metadata` — never the public link-preview API (D-017).
  */
 export async function insertDmBookmarks(
   items: IGBookmark[]
@@ -168,34 +189,35 @@ export async function insertDmBookmarks(
   }
   if (rows.length === 0) return { inserted: 0, skipped };
 
-  const saved = await db
-    .insert(bookmarks)
-    .values(rows)
-    .onConflictDoNothing({ target: bookmarks.urlHash })
-    .returning();
-
+  const saved = await insertBookmarks(rows);
   const inserted = saved.length;
   pushEvent('sync', `dm inserted=${inserted} skipped=${skipped}`);
 
   const targets = await collectEnrichTargets(saved, rows);
-  await Promise.allSettled(targets.map((t) => enrichBookmark(t.id, t.url)));
+  await Promise.allSettled(
+    targets.map((t) => enrichBookmark(t.id, t.url, { allowInterim: false }))
+  );
   pushEvent('sync', `dm enriched=${targets.length}`);
 
   return { inserted, skipped };
 }
 
 /**
- * Rows to enrich after a DM insert: every freshly-inserted bookmark plus any
- * already-saved row that backed off (conflict) and still shows as a bare card
- * — this heals reels synced before frontend enrichment existed.
+ * Rows to enrich after a DM insert: freshly-inserted bookmarks that still lack
+ * both title and image, plus any conflicted bare row from an earlier sync.
+ * Skip when the backend already sent usable preview fields.
  */
 async function collectEnrichTargets(
   saved: Bookmark[],
   rows: NewBookmark[]
 ): Promise<Array<{ id: number; url: string }>> {
-  const targets: Array<{ id: number; url: string }> = saved.map((s) => ({ id: s.id, url: s.url }));
-  const insertedHashes = new Set(saved.map((s) => s.urlHash));
+  const targets: Array<{ id: number; url: string }> = [];
 
+  for (const s of saved) {
+    if (!s.title && !s.image) targets.push({ id: s.id, url: s.url });
+  }
+
+  const insertedHashes = new Set(saved.map((s) => s.urlHash));
   for (const row of rows) {
     if (insertedHashes.has(row.urlHash)) continue;
     const existing = await getBookmarkByUrlHash(row.urlHash);
@@ -309,6 +331,11 @@ export interface EnrichmentResult {
   durationMs: number;
 }
 
+export type EnrichOptions = {
+  /** When false, never call the public link-preview API (DM path). Default true. */
+  allowInterim?: boolean;
+};
+
 /**
  * Enriches an already-saved bookmark with fetched page metadata.
  * Runs as a fire-and-forget async job (native fetch I/O, never blocks the UI).
@@ -320,10 +347,18 @@ export interface EnrichmentResult {
  *  2. Everywhere else: direct device-side fetch (private, fast); when the
  *     direct result is empty or fails, falls back to the extractor.
  *
+ * Pass `{ allowInterim: false }` on the DM path so enrichment never nests the
+ * public link-preview API (docs/03 §3.4 / D-017).
+ *
  * Returns an EnrichmentResult (metadata patch + source + duration) on success,
  * or null when no metadata could be found.
  */
-export async function enrichBookmark(id: number, url: string): Promise<EnrichmentResult | null> {
+export async function enrichBookmark(
+  id: number,
+  url: string,
+  options?: EnrichOptions
+): Promise<EnrichmentResult | null> {
+  const allowInterim = options?.allowInterim !== false;
   const startedAt = Date.now();
   const tag = `bookmark#${id}`;
 
@@ -336,7 +371,7 @@ export async function enrichBookmark(id: number, url: string): Promise<Enrichmen
 
   if (isWalledDomain(domain)) {
     pushEvent('enrich', `${tag} tier=extractor host=${domain} reason=walled`);
-    return extractorTier(id, url, domain, startedAt);
+    return extractorTier(id, url, domain, startedAt, allowInterim);
   }
 
   let direct: Partial<NewBookmark> | undefined;
@@ -353,17 +388,18 @@ export async function enrichBookmark(id: number, url: string): Promise<Enrichmen
   }
 
   pushEvent('enrich', `${tag} tier=extractor host=${domain || '?'} reason=empty-direct`);
-  return extractorTier(id, url, domain, startedAt);
+  return extractorTier(id, url, domain, startedAt, allowInterim);
 }
 
 async function extractorTier(
   id: number,
   url: string,
   domain: string,
-  startedAt: number
+  startedAt: number,
+  allowInterim: boolean
 ): Promise<EnrichmentResult | null> {
   const tag = `bookmark#${id}`;
-  const extracted = await fetchExtractedMetadata(url);
+  const extracted = await fetchExtractedMetadata(url, { allowInterim });
   if (extracted) {
     await updateBookmark(id, extracted.patch);
     const durationMs = Date.now() - startedAt;

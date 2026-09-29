@@ -250,6 +250,49 @@
 import { DarkTheme, DefaultTheme, type Theme } from 'expo-router';
 
 // ─────────────────────────────────────────────
+// Typography scale (identical for dark/light)
+// ─────────────────────────────────────────────
+export type AppTypography = {
+  fontSize: {
+    micro: number;
+    caption: number;
+    small: number;
+    card: number;
+    body: number;
+    title: number;
+    heading: number;
+    featured: number;
+  };
+  lineHeight: {
+    tight: number;
+    snug: number;
+    compact: number;
+    normal: number;
+    loose: number;
+  };
+};
+
+export const typography: AppTypography = {
+  fontSize: {
+    micro: 9,
+    caption: 10,
+    small: 11,
+    card: 12,
+    body: 13,
+    title: 14,
+    heading: 15,
+    featured: 24,
+  },
+  lineHeight: {
+    tight: 14,
+    snug: 15,
+    compact: 16,
+    normal: 17,
+    loose: 19,
+  },
+};
+
+// ─────────────────────────────────────────────
 // Extended theme type (adds app-specific tokens)
 // ─────────────────────────────────────────────
 export type AppTheme = Theme & {
@@ -265,6 +308,7 @@ export type AppTheme = Theme & {
     image: string;
     link: string;
   };
+  typography: AppTypography;
 };
 
 // ─────────────────────────────────────────────
@@ -295,6 +339,7 @@ export const MyDarkTheme: AppTheme = {
     image: '#CC6E93',
     link: '#5E8FC7',
   },
+  typography,
 };
 
 // ─────────────────────────────────────────────
@@ -324,4 +369,5 @@ export const MyLightTheme: AppTheme = {
     image: '#A3406A',
     link: '#38609A',
   },
+  typography,
 };

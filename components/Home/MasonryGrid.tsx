@@ -49,16 +49,22 @@ const MasonryItem = memo(function MasonryItem({
   onPressPin,
   onLongPressPin,
   onPressMenu,
+  onToggleFavorite,
 }: {
   pin: Pin;
   imageHeight: number;
   onPressPin?: (pin: Pin) => void;
   onLongPressPin?: (pin: Pin) => void;
   onPressMenu?: (pin: Pin) => void;
+  onToggleFavorite?: (pin: Pin) => void;
 }) {
   const onPress = useCallback(() => onPressPin?.(pin), [onPressPin, pin]);
   const onLongPress = useCallback(() => onLongPressPin?.(pin), [onLongPressPin, pin]);
   const handlePressMenu = useCallback(() => onPressMenu?.(pin), [onPressMenu, pin]);
+  const handleToggleFavorite = useCallback(
+    () => onToggleFavorite?.(pin),
+    [onToggleFavorite, pin]
+  );
 
   return (
     <View style={{ marginHorizontal: COLUMN_MARGIN }}>
@@ -68,6 +74,7 @@ const MasonryItem = memo(function MasonryItem({
         onPress={onPress}
         onLongPress={onLongPress}
         onPressMenu={handlePressMenu}
+        onToggleFavorite={handleToggleFavorite}
       />
     </View>
   );
@@ -78,6 +85,7 @@ export const MasonryGrid = memo(function MasonryGrid({
   onPressPin,
   onLongPressPin,
   onPressMenu,
+  onToggleFavorite,
   headerContent,
   footer,
   empty,
@@ -90,6 +98,7 @@ export const MasonryGrid = memo(function MasonryGrid({
   onPressPin?: (pin: Pin) => void;
   onLongPressPin?: (pin: Pin) => void;
   onPressMenu?: (pin: Pin) => void;
+  onToggleFavorite?: (pin: Pin) => void;
   headerContent?: ReactNode;
   footer?: ListExtraComponent;
   empty?: ListExtraComponent;
@@ -166,9 +175,10 @@ export const MasonryGrid = memo(function MasonryGrid({
         onPressPin={onPressPin}
         onLongPressPin={onLongPressPin}
         onPressMenu={onPressMenu}
+        onToggleFavorite={onToggleFavorite}
       />
     ),
-    [heights, onPressPin, onLongPressPin, onPressMenu]
+    [heights, onPressPin, onLongPressPin, onPressMenu, onToggleFavorite]
   );
 
   const keyExtractor = useCallback((item: Pin) => String(item.id), []);

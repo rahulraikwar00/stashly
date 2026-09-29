@@ -20,6 +20,7 @@ one thread, so every caller only ever sees their own thread.
 | GET    | `/health`                               | open   | am I alive?                                | no                       |
 | POST   | `/auth/codes`                           | open   | register a pending 6-digit code            | —                        |
 | GET    | `/auth/status`                          | code   | is my code linked? which thread/account?   | no                       |
+| POST   | `/auth/unlink`                          | code   | forget / revoke the code + free the thread | no                       |
 | GET    | `/messages`                             | code   | peek my thread (read-only)                 | no                       |
 | GET    | `/messages/links`                       | code   | **get new links** (the app's real call)    | **yes**                  |
 | GET    | `/messages/history?username&limit&type` | code   | look up old items in my thread             | no                       |
