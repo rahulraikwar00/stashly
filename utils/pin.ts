@@ -28,19 +28,48 @@ export function bookmarkToPin(b: Bookmark): Pin {
 }
 
 /**
- * Parses the comma-separated tag input the user types (or a stored JSON array
- * string) into a normalized, de-duplicated list: lowercase, no leading `#`,
- * no double quotes (keeps the JSON-substring tag filter reliable), empty
- * entries dropped.
+ * Normalizes a single tag token: lowercase, no leading `#`, no double quotes,
+ * empty → null.
+ */
+function cleanTagToken(raw: unknown): string | null {
+  if (raw == null) return null;
+  const t = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, '')
+    .replace(/"/g, '');
+  return t || null;
+}
+
+/**
+ * Parses stored JSON tag arrays (`["pizza","recipe"]`, `[]`) or the
+ * comma-separated tag input the user types into a normalized, de-duplicated
+ * list: lowercase, no leading `#`, no double quotes (keeps the JSON-substring
+ * tag filter reliable), empty entries dropped.
  */
 export function parseTags(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '[]') return [];
+
+  let tokens: string[] = [];
+
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        tokens = parsed.map((t) => String(t ?? ''));
+      } else {
+        tokens = trimmed.split(',');
+      }
+    } catch {
+      tokens = trimmed.split(',');
+    }
+  } else {
+    tokens = trimmed.split(',');
+  }
+
   return Array.from(
-    new Set(
-      value
-        .split(',')
-        .map((t) => t.trim().toLowerCase().replace(/^#/, '').replace(/"/g, ''))
-        .filter(Boolean)
-    )
+    new Set(tokens.map(cleanTagToken).filter((t): t is string => t != null))
   );
 }
 
