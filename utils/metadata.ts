@@ -230,8 +230,96 @@ export interface ExtractorResult {
  * would render as a bare hostname link with no thumbnail.
  */
 export function isEmptyMetadata(patch: Partial<NewBookmark>): boolean {
-  const titleMissing = !patch.title || patch.title.length === 0 || patch.title === patch.domain;
+  const titleMissing = !hasUsableTitle(patch.title, patch.domain);
   return !patch.image && titleMissing;
+}
+
+/** Title is usable when non-empty and not just the hostname placeholder. */
+export function hasUsableTitle(
+  title: string | null | undefined,
+  domain: string | null | undefined
+): boolean {
+  const t = (title ?? '').trim();
+  if (!t) return false;
+  const d = (domain ?? '').trim();
+  return !d || t !== d;
+}
+
+/**
+ * Shared incomplete-card rule for paste + DM: needs enrich when title is
+ * missing/domain-only OR image is missing (OR, not AND).
+ */
+export function isIncompleteBookmark(row: {
+  title?: string | null;
+  image?: string | null;
+  domain?: string | null;
+}): boolean {
+  const titleMissing = !hasUsableTitle(row.title, row.domain);
+  const imageMissing = !(row.image && String(row.image).trim());
+  return titleMissing || imageMissing;
+}
+
+const AUTO_METADATA_KEYS = [
+  'title',
+  'description',
+  'image',
+  'favicon',
+  'siteName',
+  'author',
+  'publishedAt',
+  'language',
+  'type',
+] as const;
+
+type AutoMetadataKey = (typeof AUTO_METADATA_KEYS)[number];
+
+/**
+ * Merge fetched auto metadata into an existing row without wiping DM captions,
+ * tags, or user customs. Only fills empty (or domain-placeholder title) fields.
+ */
+export function mergeAutoMetadata(
+  existing: {
+    title?: string | null;
+    description?: string | null;
+    image?: string | null;
+    favicon?: string | null;
+    siteName?: string | null;
+    author?: string | null;
+    publishedAt?: number | null;
+    language?: string | null;
+    type?: string | null;
+    domain?: string | null;
+  },
+  patch: Partial<NewBookmark>
+): Partial<NewBookmark> {
+  const out: Partial<NewBookmark> = {};
+
+  for (const key of AUTO_METADATA_KEYS) {
+    const incoming = patch[key as AutoMetadataKey];
+    if (incoming == null) continue;
+    if (typeof incoming === 'string' && !incoming.trim()) continue;
+
+    if (key === 'title') {
+      if (!hasUsableTitle(existing.title, existing.domain)) {
+        out.title = String(incoming);
+      }
+      continue;
+    }
+
+    if (key === 'publishedAt') {
+      if (existing.publishedAt == null && typeof incoming === 'number') {
+        out.publishedAt = incoming;
+      }
+      continue;
+    }
+
+    const current = existing[key as Exclude<AutoMetadataKey, 'publishedAt' | 'title'>];
+    if (current == null || (typeof current === 'string' && !current.trim())) {
+      (out as Record<string, unknown>)[key] = incoming;
+    }
+  }
+
+  return out;
 }
 
 function mapExtractorResult(url: string, meta: ExtractorResult): Partial<NewBookmark> | null {
@@ -384,6 +472,10 @@ export async function fetchExtractedMetadata(
   } else if (!meta && !allowInterim) {
     debugLog('metadata', 'interim fallback skipped (DM path)');
   }
+
+  // #region agent log
+  fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'B',location:'metadata.ts:fetchExtractedMetadata',message:'extract ladder outcome',data:{allowInterim,source,gotMeta:!!meta,title:meta?.title?String(meta.title).slice(0,80):'',hasImage:!!meta?.image,host:(()=>{try{return new URL(url).hostname}catch{return ''}})()},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 
   const patch = meta ? mapExtractorResult(url, meta) : null;
   const ms = Date.now() - startedAt;

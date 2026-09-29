@@ -8,7 +8,9 @@ import {
   fetchExtractedMetadata,
   fetchPageMetadata,
   isEmptyMetadata,
+  isIncompleteBookmark,
   isWalledDomain,
+  mergeAutoMetadata,
 } from '@/utils/metadata';
 import { urlHashFor } from '@/utils/hash';
 import { pushEvent } from '@/utils/debug';
@@ -171,8 +173,9 @@ function mapDmToRow(res: IGBookmark, now: number): NewBookmark {
 
 /**
  * Inserts backend DM bookmarks through the shared `insertBookmarks` dedupe
- * path. After insert, only bare cards (missing title and image) are enriched
- * via self-hosted `/metadata` — never the public link-preview API (D-017).
+ * path. After insert, incomplete cards (missing usable title or image) are
+ * enriched via self-hosted `/metadata` — never the public link-preview API
+ * (D-017). Captions/tags from the backend are preserved on merge.
  */
 export async function insertDmBookmarks(
   items: IGBookmark[]
@@ -193,7 +196,16 @@ export async function insertDmBookmarks(
   const inserted = saved.length;
   pushEvent('sync', `dm inserted=${inserted} skipped=${skipped}`);
 
+  // #region agent log
+  fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'A',location:'bookmarkService.ts:insertDmBookmarks',message:'DM insert batch',data:{requested:rows.length,inserted,skipped,sample:rows.slice(0,2).map(r=>({urlHash:r.urlHash,title:r.title||'',hasImage:!!r.image,author:r.author||'',incomplete:isIncompleteBookmark(r)}))},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   const targets = await collectEnrichTargets(saved, rows);
+
+  // #region agent log
+  fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'A',location:'bookmarkService.ts:collectEnrichTargets',message:'DM enrich targets',data:{targetCount:targets.length,targetIds:targets.map(t=>t.id)},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   await Promise.allSettled(
     targets.map((t) => enrichBookmark(t.id, t.url, { allowInterim: false }))
   );
@@ -203,9 +215,9 @@ export async function insertDmBookmarks(
 }
 
 /**
- * Rows to enrich after a DM insert: freshly-inserted bookmarks that still lack
- * both title and image, plus any conflicted bare row from an earlier sync.
- * Skip when the backend already sent usable preview fields.
+ * Rows to enrich after a DM insert: freshly-inserted incomplete bookmarks,
+ * plus any conflicted existing row that is still incomplete (preview-only
+ * title/image gaps).
  */
 async function collectEnrichTargets(
   saved: Bookmark[],
@@ -214,14 +226,14 @@ async function collectEnrichTargets(
   const targets: Array<{ id: number; url: string }> = [];
 
   for (const s of saved) {
-    if (!s.title && !s.image) targets.push({ id: s.id, url: s.url });
+    if (isIncompleteBookmark(s)) targets.push({ id: s.id, url: s.url });
   }
 
   const insertedHashes = new Set(saved.map((s) => s.urlHash));
   for (const row of rows) {
     if (insertedHashes.has(row.urlHash)) continue;
     const existing = await getBookmarkByUrlHash(row.urlHash);
-    if (existing && !existing.title && !existing.image) {
+    if (existing && isIncompleteBookmark(existing)) {
       targets.push({ id: existing.id, url: existing.url });
     }
   }
@@ -350,6 +362,9 @@ export type EnrichOptions = {
  * Pass `{ allowInterim: false }` on the DM path so enrichment never nests the
  * public link-preview API (docs/03 §3.4 / D-017).
  *
+ * Auto fields are merged fill-empty-only so DM captions/tags and user customs
+ * are never wiped.
+ *
  * Returns an EnrichmentResult (metadata patch + source + duration) on success,
  * or null when no metadata could be found.
  */
@@ -361,6 +376,10 @@ export async function enrichBookmark(
   const allowInterim = options?.allowInterim !== false;
   const startedAt = Date.now();
   const tag = `bookmark#${id}`;
+
+  // #region agent log
+  fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'B',location:'bookmarkService.ts:enrichBookmark',message:'enrich start',data:{id,domainHint:(()=>{try{return new URL(url).hostname}catch{return ''}})(),allowInterim},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 
   let domain = '';
   try {
@@ -382,13 +401,33 @@ export async function enrichBookmark(
   }
 
   if (direct && !isEmptyMetadata(direct)) {
-    await updateBookmark(id, direct);
-    pushEvent('enrich', `${tag} direct loaded ${Date.now() - startedAt}ms`);
-    return { patch: direct, source: 'direct', durationMs: Date.now() - startedAt };
+    const applied = await applyMergedEnrichment(id, direct);
+    if (applied) {
+      // #region agent log
+      fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'C',location:'bookmarkService.ts:enrichBookmark',message:'enrich direct applied',data:{id,appliedKeys:Object.keys(applied),hasTitle:!!applied.title,hasImage:!!applied.image},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      pushEvent('enrich', `${tag} direct loaded ${Date.now() - startedAt}ms`);
+      return { patch: applied, source: 'direct', durationMs: Date.now() - startedAt };
+    }
   }
 
   pushEvent('enrich', `${tag} tier=extractor host=${domain || '?'} reason=empty-direct`);
   return extractorTier(id, url, domain, startedAt, allowInterim);
+}
+
+async function applyMergedEnrichment(
+  id: number,
+  patch: Partial<NewBookmark>
+): Promise<Partial<NewBookmark> | null> {
+  const existing = await loadBookmarkById(id);
+  if (!existing) return null;
+  const merged = mergeAutoMetadata(existing, patch);
+  // #region agent log
+  fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'C',location:'bookmarkService.ts:applyMergedEnrichment',message:'merge auto metadata',data:{id,existingTitle:existing.title||'',existingHasImage:!!existing.image,patchKeys:Object.keys(patch),mergedKeys:Object.keys(merged),mergedTitle:merged.title||'',mergedHasImage:!!merged.image},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if (Object.keys(merged).length === 0) return null;
+  await updateBookmark(id, merged);
+  return merged;
 }
 
 async function extractorTier(
@@ -400,13 +439,18 @@ async function extractorTier(
 ): Promise<EnrichmentResult | null> {
   const tag = `bookmark#${id}`;
   const extracted = await fetchExtractedMetadata(url, { allowInterim });
+  // #region agent log
+  fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'B',location:'bookmarkService.ts:extractorTier',message:'extractor result',data:{id,domain,allowInterim,gotExtract:!!extracted,source:extracted?.source??null,patchTitle:extracted?.patch.title||'',patchHasImage:!!extracted?.patch.image},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   if (extracted) {
-    await updateBookmark(id, extracted.patch);
-    const durationMs = Date.now() - startedAt;
-    const source =
-      extracted.source === 'self-hosted' ? 'extractor-self-hosted' : 'extractor-interim';
-    pushEvent('enrich', `${tag} ${source} loaded ${durationMs}ms`);
-    return { patch: extracted.patch, source, durationMs };
+    const applied = await applyMergedEnrichment(id, extracted.patch);
+    if (applied) {
+      const durationMs = Date.now() - startedAt;
+      const source =
+        extracted.source === 'self-hosted' ? 'extractor-self-hosted' : 'extractor-interim';
+      pushEvent('enrich', `${tag} ${source} loaded ${durationMs}ms`);
+      return { patch: applied, source, durationMs };
+    }
   }
 
   pushEvent('enrich', `${tag} failed ${domain || '?'} ${Date.now() - startedAt}ms`);

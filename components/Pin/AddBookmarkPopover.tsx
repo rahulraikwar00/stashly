@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { useToast } from '@/components/Feedback/ToastProvider';
 import { normalizeTags } from '@/utils/pin';
-import { faviconForDomain } from '@/utils/metadata';
+import { faviconForDomain, isIncompleteBookmark } from '@/utils/metadata';
 import { urlHashFor } from '@/utils/hash';
 
 type Status = 'idle' | 'saving';
@@ -138,12 +138,15 @@ export function AddBookmarkPopover({
     try {
       const existing = await getBookmarkByUrlHash(hash);
       if (existing) {
-        setStatus('idle');
-        if (fromShareRef.current) {
-          resetForm();
-          onClose?.();
+        const incomplete = isIncompleteBookmark(existing);
+        resetForm();
+        onClose?.();
+        if (incomplete) {
+          showToast('Already saved — refreshing details…', 'info');
+          void enrichBookmark(existing.id, existing.url).then(() => onSaved?.());
+        } else {
+          showToast('Already saved — this link is already in your library.', 'info');
         }
-        showToast('Already saved — this link is already in your library.', 'info');
         return;
       }
     } catch {
@@ -193,12 +196,15 @@ export function AddBookmarkPopover({
     try {
       const saved = await insertBookmark(row);
       if (!saved) {
-        setStatus('idle');
-        if (fromShareRef.current) {
-          resetForm();
-          onClose?.();
+        const existing = await getBookmarkByUrlHash(hash);
+        resetForm();
+        onClose?.();
+        if (existing && isIncompleteBookmark(existing)) {
+          showToast('Already saved — refreshing details…', 'info');
+          void enrichBookmark(existing.id, existing.url).then(() => onSaved?.());
+        } else {
+          showToast('Already saved — this link is already in your library.', 'info');
         }
-        showToast('Already saved — this link is already in your library.', 'info');
         return;
       }
 
@@ -207,7 +213,15 @@ export function AddBookmarkPopover({
       onSaved?.();
       onClose?.();
       showToast('Saved to your library.', 'success');
-      void enrichBookmark(savedId, trimmed).then(() => onSaved?.());
+      // #region agent log
+      fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'B',location:'AddBookmarkPopover.tsx:onSave',message:'paste enrich start',data:{savedId,allowInterim:true},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      void enrichBookmark(savedId, trimmed).then((result) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7747/ingest/7c723dce-edfb-4530-91f2-8c703d63e5fd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1b207b'},body:JSON.stringify({sessionId:'1b207b',runId:'pre-fix',hypothesisId:'B',location:'AddBookmarkPopover.tsx:onSave',message:'paste enrich done',data:{savedId,ok:!!result,source:result?.source??null,hasTitle:!!result?.patch.title,hasImage:!!result?.patch.image},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        onSaved?.();
+      });
     } catch {
       setStatus('idle');
       showToast('Could not save. Please try again.', 'error');
