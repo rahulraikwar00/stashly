@@ -23,7 +23,7 @@ export const DM_TIMEOUT_MS = 12000;
  * The official Instagram account the user DMs `/link <code>` to.
  * Must match IG_USERNAME in backend/.env.
  */
-export const IG_HANDLE = 'noxionicsx';
+export const IG_HANDLE = 'stashlyhq';
 
 export type IGSyncErrorKind = 'network' | 'server' | 'conflict' | 'not-linked' | 'not-configured';
 
