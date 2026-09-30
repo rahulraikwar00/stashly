@@ -51,6 +51,16 @@ type FormFields = {
   apiKey: string;
 };
 
+type Tab = 'profile' | 'server' | 'data';
+
+const TABS: readonly Tab[] = ['profile', 'server', 'data'];
+
+const TAB_LABELS: Record<Tab, string> = {
+  profile: 'Profile',
+  server: 'Server',
+  data: 'Data',
+};
+
 const STATUS_LABELS: Record<DefaultStatusChoice, string> = {
   all: 'All',
   favorites: 'Favorites',
@@ -126,6 +136,33 @@ function ChoiceChips<T extends string>({
   );
 }
 
+function TabStrip({ value, onChange }: { value: Tab; onChange: (t: Tab) => void }) {
+  const theme = useTheme() as AppTheme;
+  const c = theme.colors;
+  return (
+    <View className="mt-3 flex-row rounded-2xl p-1" style={{ backgroundColor: c.surfaceAlt }}>
+      {TABS.map((t) => {
+        const active = t === value;
+        return (
+          <Pressable
+            key={t}
+            onPress={() => onChange(t)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            className="flex-1 items-center rounded-xl py-1.5 active:opacity-80"
+            style={{ backgroundColor: active ? c.primary : 'transparent' }}>
+            <Text
+              className="text-[12px] font-semibold"
+              style={{ color: active ? '#FFFFFF' : c.textMuted }}>
+              {TAB_LABELS[t]}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function ProfilePopover({
   visible,
   onClose,
@@ -157,8 +194,7 @@ export function ProfilePopover({
   );
   const [errors, setErrors] = useState<ProfileErrors>({});
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [showServer, setShowServer] = useState(false);
-  const [showBackup, setShowBackup] = useState(false);
+  const [tab, setTab] = useState<Tab>('profile');
   const [backupText, setBackupText] = useState('');
   const [backupBusy, setBackupBusy] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -166,7 +202,6 @@ export function ProfilePopover({
   // ── Instagram sync state machine ────────────────────────────────────
   // 'idle' | 'waiting' (code registered, awaiting /link) | 'linked' |
   // 'unknown' (expired/never registered) | 'error'
-  const [showSync, setShowSync] = useState(false);
   const [localCode, setLocalCode] = useState('');
   const [syncPhase, setSyncPhase] = useState<'idle' | 'waiting' | 'linked' | 'unknown' | 'error'>(
     'idle'
@@ -224,26 +259,26 @@ export function ProfilePopover({
     void runCheckStatus(code);
   }, [code, runCheckStatus]);
 
-  // Re-evaluate the connection every time the group opens or the code changes.
+  // Re-evaluate the connection every time the Server tab opens or the code changes.
   useEffect(() => {
-    if (!visible || !showSync || !code) return;
+    if (!visible || tab !== 'server' || !code) return;
     const t = setTimeout(() => {
       void runCheckStatus(code);
     }, 0);
     return () => clearTimeout(t);
-  }, [visible, showSync, code, runCheckStatus]);
+  }, [visible, tab, code, runCheckStatus]);
 
   // While waiting for the user to DM /link <code>, poll ~5s until linked/expired.
   useEffect(() => {
-    if (!visible || !showSync || syncPhase !== 'waiting') return;
+    if (!visible || tab !== 'server' || syncPhase !== 'waiting') return;
     const timer = setInterval(() => {
       void runCheckStatus(code);
     }, 5000);
     return () => clearInterval(timer);
-  }, [visible, showSync, syncPhase, code, runCheckStatus]);
+  }, [visible, tab, syncPhase, code, runCheckStatus]);
 
   // ── Server reachability indicator ──────────────────────────────────
-  // Pings the configured backend's /health when the popover opens (and after
+  // Pings the configured backend's /health when the Server tab opens (and after
   // the user saves a new Server URL / API key). On-demand only — no polling.
   const [serverStatus, setServerStatus] = useState<ServerStatus>('unset');
   const serverCheckRef = useRef(false);
@@ -260,12 +295,12 @@ export function ProfilePopover({
   }, []);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || tab !== 'server') return;
     const t = setTimeout(() => {
       void runServerCheck();
     }, 0);
     return () => clearTimeout(t);
-  }, [visible, settings.serverUrl, settings.apiKey, runServerCheck]);
+  }, [visible, tab, settings.serverUrl, settings.apiKey, runServerCheck]);
 
   const serverLabel: Record<ServerStatus, string> = {
     online: 'Server online',
@@ -611,103 +646,113 @@ export function ProfilePopover({
           )}
         </View>
 
+        <View className="px-4">
+          <TabStrip value={tab} onChange={setTab} />
+        </View>
+
         <ScrollView
           className="px-4"
+          contentContainerStyle={{ paddingBottom: 6 }}
           showsVerticalScrollIndicator={false}
           bounces={false}
           keyboardShouldPersistTaps="handled"
-          style={{ maxHeight: 480, flexShrink: 1 }}>
-          {/* ‒ Avatar ‒ */}
-          <View className="mt-3 items-center">
-            <View>
-              <UserAvatar uri={form.avatarUri} name={avatarName} size={72} />
-              <Pressable
-                onPress={pickAvatar}
-                hitSlop={8}
-                className="absolute -bottom-1 -right-1 items-center justify-center rounded-full p-1.5"
-                style={{ backgroundColor: c.primary }}>
-                <Ionicons name="camera" size={13} color="#FFFFFF" />
-              </Pressable>
-            </View>
-            <Text className="mt-2 text-[13px] font-semibold" style={{ color: c.text }}>
-              {avatarName || 'Your name'}
-            </Text>
-            {form.email.trim() ? (
-              <Text className="text-[11px]" style={{ color: c.textMuted }}>
-                {form.email.trim()}
-              </Text>
-            ) : null}
-          </View>
-
-          {/* ‒ Identity ‒ */}
-          <FormLabel color={c.textMuted}>Display name</FormLabel>
-          {inputRow('displayName', {
-            placeholder: 'How should we call you?',
-            autoCapitalize: 'words',
-            autoCorrect: false,
-            showClear: true,
-          })}
-          <FormLabel color={c.textMuted}>Username</FormLabel>
-          {inputRow('username', {
-            placeholder: 'username (lowercase, optional)',
-            autoCapitalize: 'none',
-            autoCorrect: false,
-            showClear: true,
-          })}
-          <FormLabel color={c.textMuted}>Email</FormLabel>
-          {inputRow('email', {
-            placeholder: 'you@example.com (optional)',
-            keyboardType: 'email-address',
-            autoCapitalize: 'none',
-            autoCorrect: false,
-            showClear: true,
-          })}
-
-          {/* ‒ Preferences ‒ */}
-          <FormLabel color={c.textMuted}>Theme</FormLabel>
-          <ChoiceChips
-            options={THEME_CHOICES}
-            value={pref.theme}
-            onChange={(t) => setPref((p) => ({ ...p, theme: t }))}
-            labels={THEME_LABELS}
-            theme={theme}
-          />
-          <FormLabel color={c.textMuted}>Default view</FormLabel>
-          <ChoiceChips
-            options={DEFAULT_STATUS_CHOICES}
-            value={pref.defaultStatus}
-            onChange={(s) => setPref((p) => ({ ...p, defaultStatus: s }))}
-            labels={STATUS_LABELS}
-            theme={theme}
-          />
-
-          {/* ‒ Server (advanced) ‒ */}
-          <Pressable
-            onPress={() => setShowServer((s) => !s)}
-            className="mt-4 flex-row items-center justify-between rounded-2xl px-3 py-2.5"
-            style={{ backgroundColor: c.surfaceAlt }}>
-            <View className="flex-row items-center">
-              <View
-                className="mr-1.5 h-2 w-2 rounded-full"
-                style={{ backgroundColor: serverDotColor[serverStatus] }}
-              />
-              <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
-                Self-hosted server
-              </Text>
-            </View>
-            <View className="flex-row items-center">
-              <Text className="mr-2 text-[10px]" style={{ color: c.textMuted }}>
-                {serverLabel[serverStatus]}
-              </Text>
-              <Ionicons
-                name={showServer ? 'chevron-up' : 'chevron-down'}
-                size={15}
-                color={c.textMuted}
-              />
-            </View>
-          </Pressable>
-          {showServer && (
+          style={{ maxHeight: 440, flexShrink: 1 }}>
+          {tab === 'profile' && (
             <>
+              {/* ‒ Avatar ‒ */}
+              <View className="mt-3 items-center">
+                <View>
+                  <UserAvatar uri={form.avatarUri} name={avatarName} size={72} />
+                  <Pressable
+                    onPress={pickAvatar}
+                    hitSlop={8}
+                    className="absolute -bottom-1 -right-1 items-center justify-center rounded-full p-1.5"
+                    style={{ backgroundColor: c.primary }}>
+                    <Ionicons name="camera" size={13} color="#FFFFFF" />
+                  </Pressable>
+                </View>
+                <Text className="mt-2 text-[13px] font-semibold" style={{ color: c.text }}>
+                  {avatarName || 'Your name'}
+                </Text>
+                {form.email.trim() ? (
+                  <Text className="text-[11px]" style={{ color: c.textMuted }}>
+                    {form.email.trim()}
+                  </Text>
+                ) : null}
+              </View>
+
+              {/* ‒ Identity ‒ */}
+              <FormLabel color={c.textMuted}>Display name</FormLabel>
+              {inputRow('displayName', {
+                placeholder: 'How should we call you?',
+                autoCapitalize: 'words',
+                autoCorrect: false,
+                showClear: true,
+              })}
+              <FormLabel color={c.textMuted}>Username</FormLabel>
+              {inputRow('username', {
+                placeholder: 'username (lowercase, optional)',
+                autoCapitalize: 'none',
+                autoCorrect: false,
+                showClear: true,
+              })}
+              <FormLabel color={c.textMuted}>Email</FormLabel>
+              {inputRow('email', {
+                placeholder: 'you@example.com (optional)',
+                keyboardType: 'email-address',
+                autoCapitalize: 'none',
+                autoCorrect: false,
+                showClear: true,
+              })}
+
+              {/* ‒ Preferences ‒ */}
+              <FormLabel color={c.textMuted}>Theme</FormLabel>
+              <ChoiceChips
+                options={THEME_CHOICES}
+                value={pref.theme}
+                onChange={(t) => setPref((p) => ({ ...p, theme: t }))}
+                labels={THEME_LABELS}
+                theme={theme}
+              />
+              <FormLabel color={c.textMuted}>Default view</FormLabel>
+              <ChoiceChips
+                options={DEFAULT_STATUS_CHOICES}
+                value={pref.defaultStatus}
+                onChange={(s) => setPref((p) => ({ ...p, defaultStatus: s }))}
+                labels={STATUS_LABELS}
+                theme={theme}
+              />
+
+              <Text className="mt-2 text-[10px]" style={{ color: c.textFaint }}>
+                Your name, username and email stay on this device only.
+              </Text>
+              <Pressable onPress={onReset} hitSlop={8} className="mt-2 items-center py-1">
+                <Text className="text-[11px] font-semibold" style={{ color: '#F87171' }}>
+                  Reset profile
+                </Text>
+              </Pressable>
+            </>
+          )}
+
+          {tab === 'server' && (
+            <>
+              {/* ‒ Server status banner (static — the tab is the disclosure) ‒ */}
+              <View
+                className="mt-3 flex-row items-center justify-between rounded-2xl px-3 py-2.5"
+                style={{ backgroundColor: c.surfaceAlt }}>
+                <View className="flex-row items-center">
+                  <View
+                    className="mr-1.5 h-2 w-2 rounded-full"
+                    style={{ backgroundColor: serverDotColor[serverStatus] }}
+                  />
+                  <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
+                    Self-hosted server
+                  </Text>
+                </View>
+                <Text className="text-[10px]" style={{ color: c.textMuted }}>
+                  {serverLabel[serverStatus]}
+                </Text>
+              </View>
               <Text
                 className="mt-2 text-[10px] leading-[14px]"
                 style={{ color: serverDotColor[serverStatus] }}>
@@ -750,28 +795,18 @@ export function ProfilePopover({
                 autoCorrect: false,
                 secure: !apiKeyVisible,
               })}
-            </>
-          )}
 
-          {/* ‒ Instagram sync ‒ */}
-          <Pressable
-            onPress={() => setShowSync((s) => !s)}
-            className="mt-4 flex-row items-center justify-between rounded-2xl px-3 py-2.5"
-            style={{ backgroundColor: c.surfaceAlt }}>
-            <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
-              Instagram sync
-            </Text>
-            <Ionicons
-              name={showSync ? 'chevron-up' : 'chevron-down'}
-              size={15}
-              color={c.textMuted}
-            />
-          </Pressable>
-          {showSync && (
-            <>
+              {/* ‒ Instagram sync ‒ */}
+              <View
+                className="mt-4 flex-row items-center rounded-2xl px-3 py-2.5"
+                style={{ backgroundColor: c.surfaceAlt }}>
+                <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
+                  Instagram sync
+                </Text>
+              </View>
               <Text className="mt-0.5 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
                 Link once by DMing @{IG_HANDLE} a code. After that, sync from the library header
-                icon or pull-to-refresh — Profile is only for connect / forget.
+                icon or pull-to-refresh — this tab is only for connect / forget.
               </Text>
 
               {syncPhase === 'idle' && (
@@ -958,25 +993,16 @@ export function ProfilePopover({
                   </Pressable>
                 </>
               )}
+
+              <Text className="mt-2 text-[10px]" style={{ color: c.textFaint }}>
+                The server address and key stay on this device only.
+              </Text>
             </>
           )}
 
-          {/* ‒ Backup ‒ */}
-          <Pressable
-            onPress={() => setShowBackup((s) => !s)}
-            className="mt-4 flex-row items-center justify-between rounded-2xl px-3 py-2.5"
-            style={{ backgroundColor: c.surfaceAlt }}>
-            <Text className="text-[12px] font-semibold" style={{ color: c.text }}>
-              Backup library
-            </Text>
-            <Ionicons
-              name={showBackup ? 'chevron-up' : 'chevron-down'}
-              size={15}
-              color={c.textMuted}
-            />
-          </Pressable>
-          {showBackup && (
+          {tab === 'data' && (
             <>
+              {/* ‒ Backup ‒ */}
               <Text className="mt-0.5 text-[10px] leading-[14px]" style={{ color: c.textFaint }}>
                 Export every bookmark to a JSON file, or restore from one by pasting it below.
               </Text>
@@ -984,7 +1010,7 @@ export function ProfilePopover({
                 onPress={onExport}
                 disabled={backupBusy}
                 className="mt-2 flex-row items-center justify-center rounded-2xl py-2.5"
-                style={{ backgroundColor: backupBusy ? c.surfaceAlt : c.surfaceAlt }}>
+                style={{ backgroundColor: c.surfaceAlt }}>
                 {backupBusy ? (
                   <ActivityIndicator size="small" color={c.primary} />
                 ) : (
@@ -1032,12 +1058,11 @@ export function ProfilePopover({
                   Import bookmarks
                 </Text>
               </Pressable>
+              <Text className="mt-2 text-[10px]" style={{ color: c.textFaint }}>
+                Imports add to your library — links you already have are kept.
+              </Text>
             </>
           )}
-
-          <Text className="mt-2 text-[10px]" style={{ color: c.textFaint }}>
-            Emails, keys and server address stay on this device only.
-          </Text>
         </ScrollView>
 
         {/* ‒ Actions ‒ */}
@@ -1056,11 +1081,6 @@ export function ProfilePopover({
                 Save changes
               </Text>
             )}
-          </Pressable>
-          <Pressable onPress={onReset} hitSlop={8} className="mt-2 items-center">
-            <Text className="text-[11px]" style={{ color: c.textMuted }}>
-              Reset profile
-            </Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
